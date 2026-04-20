@@ -1,0 +1,6 @@
+# Large audio assets should not be tracked
+/data/
+
+# Python cache
+__pycache__/
+*.py[cod]

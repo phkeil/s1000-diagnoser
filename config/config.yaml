@@ -1,0 +1,11 @@
+paths:
+  raw_audio_dir: data/raw
+  processed_audio_dir: data/processed
+  features_dir: data/features
+
+sampling:
+  sample_rate: 16000
+
+fft:
+  n_fft: 2048
+  hop_length: 512

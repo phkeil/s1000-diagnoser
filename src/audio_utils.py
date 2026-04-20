@@ -16,5 +16,5 @@ def load_audio(file_path: str, sample_rate: int = 16000) -> Tuple[np.ndarray, in
 def trim_audio(signal: np.ndarray, start_sample: int, end_sample: int) -> np.ndarray:
     """Return a sliced audio segment."""
     start = max(start_sample, 0)
-    end = max(end_sample, start)
+    end = min(max(end_sample, start), len(signal))
     return signal[start:end]

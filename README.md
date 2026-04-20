@@ -30,8 +30,16 @@ s1000-diagnoser/
 
 ## Setup
 
+This project now provides a Conda environment for reproducible installs. Two options are shown below.
+
+### Recommended: create a Conda environment
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# create the environment from environment.yml
+conda env create -f environment.yml
+
+# activate it
+conda activate s1000-diagnoser
 ```
+
+This uses the `conda-forge` channel and installs the pinned packages. The file `environment.yml` also keeps a pip fallback.

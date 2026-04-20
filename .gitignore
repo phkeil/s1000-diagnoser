@@ -4,3 +4,9 @@
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Virtual envs and conda environments
+.venv/
+envs/
+.conda/
+.mamba_lock

@@ -1,8 +1,13 @@
 # s1000-diagnoser
 
-Ein kompaktes Projektgerüst zur Diagnose von S1000-Audiodaten.
 
-## Struktur
+In this ongoing project I'm building a proof of concept for audio-based engine fault detection on BMW S1000R Motorbikes. The project is presented in the forum https://www.s1000-forum.de/viewtopic.php?f=5&t=24477 
+
+The most promising strategy at the moment is training a CAE on "healthy" engines, use it to compress and reconstruct MEL-spectral sequences of audiofiles, and compare them to the input spectrum. High deviation from the original indicates that the CAE was not able to properly reconstruct, and thus it must be an audiosequence with an unknown (un-healthy) noise profile.
+
+The work is still ongoing, but needs more data and more time investment to build a more robust pipeline.
+
+## Structure
 
 ```text
 s1000-diagnoser/
@@ -11,9 +16,10 @@ s1000-diagnoser/
 │   ├── processed/          # Extrahierte Audiospuren, bereinigte Signale
 │   └── features/           # Gespeicherte Feature-Vektoren (z.B. .npy oder .pkl)
 ├── notebooks/
-│   ├── 01_eda_audio.ipynb
-│   ├── 02_preprocessing.ipynb
-│   └── 03_model_testing.ipynb
+│   ├── 01_manual_audio_exploration.ipynb   # first look at the audio files
+│   ├── 02_preprocessing.ipynb              # preprocessing of mel spectrums
+│   ├── 04_CAE_Annomalydetector.ipynb       # Notebook to train a simple CAE for Annomaly Detection
+│   └── 0X_XXX                              # other notebooks for brainstorming methods
 ├── src/
 │   ├── __init__.py
 │   ├── audio_utils.py

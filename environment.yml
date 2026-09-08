@@ -7,8 +7,13 @@ dependencies:
   - setuptools
   - wheel
   - pip:
+    - torch==2.11.0
+    - torchvision==0.26.0
+    - pyyaml==6.0.3
     - librosa>=0.10.0,<0.11.0
     - numpy>=1.24.0,<3.0.0
     - scipy>=1.10.0,<2.0.0
     - matplotlib>=3.7.0,<4.0.0
     - pandas>=2.0.0,<3.0.0
+    - pillow==12.1.1
+    - scikit-learn==1.8.0

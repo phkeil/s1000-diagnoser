@@ -1,0 +1,49 @@
+# Central config for the mel-spectrogram anomaly pipeline.
+# Values are extracted verbatim from notebooks/02_preprocessing.ipynb (mel section)
+# and notebooks/04_CAE_Annomalydetector.ipynb (kept in sync there under the
+# "Parameter-Synchronisation" cell) so training and serving stay identical.
+
+audio:
+  sample_rate: 44100
+  segment_duration: 1.0   # seconds per analysis window
+  overlap: 0.75            # fraction of window overlap between consecutive segments
+  # step_duration = segment_duration * (1 - overlap) = 0.25s
+
+mel_spectrogram:
+  n_fft: 2048
+  hop_length: 512
+  n_mels: 128
+  fmin: 1000
+  fmax: 18000
+  db_vmin: -80   # fixed dynamic-range clip used for the magma render (imshow vmin)
+  db_vmax: 0     # (imshow vmax)
+
+image:
+  size: [224, 224]
+  resample: LANCZOS
+  colormap: magma
+
+normalize:
+  # standard ImageNet stats, used by every torch transform in the notebooks
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+model:
+  bottleneck_size: 128
+  # checkpoint ambiguity from notebook 04 (trains to ...annomalyV2.pth, evaluates
+  # from ...annomaly.pth) is intentionally NOT resolved here - see UPGRADE_PLAN.md
+  # §2.2. This path must be set explicitly once an MLflow-registered model exists.
+  checkpoint_path: models/s1000_CAE_MEL_annomaly.pth
+
+anomaly:
+  # per-domain healthy baseline (median healthy reconstruction MSE), computed in
+  # notebooks/04_CAE_Annomalydetector.ipynb against the ...annomaly.pth checkpoint
+  domain_baselines:
+    Garage: 0.048440
+    YouTube: 0.041506
+  default_domain: YouTube
+  # substrings in a filename/path that identify a "Garage" (own) recording,
+  # anything else falls back to default_domain
+  garage_name_hints: [Andre, Maximilian, Philip]
+  rel_threshold: 2.5
+  window_size: 4       # rolling-mean smoothing window, in segments

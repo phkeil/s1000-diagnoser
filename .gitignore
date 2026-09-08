@@ -12,3 +12,8 @@ __pycache__/
 envs/
 .conda/
 .mamba_lock
+
+# MLFlow
+mlruns/
+mlflow.db
+.mlflow/

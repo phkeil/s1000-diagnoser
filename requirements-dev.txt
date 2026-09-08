@@ -1,0 +1,4 @@
+# Dev/test-only dependencies (UPGRADE_PLAN.md §7).
+# environment.yml/requirements-api.txt cover runtime deps separately.
+pytest==9.1.1
+httpx==0.28.1

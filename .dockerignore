@@ -1,0 +1,14 @@
+# UPGRADE_PLAN.md §6 - Dockerfile only COPYs src/, api/, config/, so most of
+# this is belt-and-suspenders, but keeps the build context small/fast regardless.
+data/
+notebooks/
+models/*.pth
+mlruns/
+.git/
+
+# Misc local/dev cruft that should never end up in a build context
+__pycache__/
+*.py[cod]
+.pytest_cache/
+mlflow.db
+.DS_Store

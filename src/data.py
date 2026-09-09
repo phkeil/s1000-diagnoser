@@ -40,8 +40,19 @@ def build_transform(cfg: Config) -> transforms.Compose:
 
 
 def render_mel_spectrogram_image(y_segment: np.ndarray, sr: int, cfg: Config) -> Image.Image:
-    """Audio segment -> RGB mel-spectrogram image, rendered in-memory (no file I/O)."""
-    import matplotlib.pyplot as plt
+    """Audio segment -> RGB mel-spectrogram image, rendered in-memory (no file I/O).
+
+    Uses matplotlib's Figure/FigureCanvasAgg object API directly rather than
+    the pyplot global interface: pyplot auto-selects a GUI backend (e.g. macOS's),
+    which raises if a figure is created off the main thread - something any
+    multi-worker/multi-threaded server deployment (and TestClient-based tests)
+    can trigger. FigureCanvasAgg is a fixed, non-interactive, thread-safe
+    renderer, and produces pixel-identical output to the pyplot path (verified
+    against notebooks/02_preprocessing.ipynb's rendering, which trained data
+    went through) - so this doesn't reopen the train/serve parity risk.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
 
     mel_cfg = cfg.mel_spectrogram
     S = librosa.feature.melspectrogram(
@@ -55,7 +66,8 @@ def render_mel_spectrogram_image(y_segment: np.ndarray, sr: int, cfg: Config) ->
     )
     S_db = librosa.power_to_db(S, ref=np.max)
 
-    fig = plt.figure(figsize=(2.24, 2.24), dpi=100)
+    fig = Figure(figsize=(2.24, 2.24), dpi=100)
+    FigureCanvasAgg(fig)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.axis("off")
     ax.imshow(
@@ -68,8 +80,7 @@ def render_mel_spectrogram_image(y_segment: np.ndarray, sr: int, cfg: Config) ->
     )
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", pad_inches=0)
-    plt.close(fig)
+    fig.savefig(buf, format="png", pad_inches=0)
     buf.seek(0)
 
     resample = getattr(Image.Resampling, cfg.image.resample)

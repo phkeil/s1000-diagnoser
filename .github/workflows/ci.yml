@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff
+        run: ruff check src/ api/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-api.txt -r requirements-dev.txt
+
+      # Purely synthetic fixtures (tests/conftest.py) - no real data/, models/,
+      # or MLflow server required. pyproject.toml's [tool.pytest.ini_options]
+      # pythonpath = ["."] is what makes `from src...`/`from api...` imports
+      # resolve here.
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The runner's Docker daemon (and its build cache) is destroyed at the end
+      # of every job, so without this, each run would re-download the ~150MB
+      # torch/torchvision CPU wheels (requirements-api.txt) from scratch. Keying
+      # on the Dockerfile + requirements-api.txt means the cache invalidates
+      # itself whenever either actually changes.
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements-api.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      # Build only, no push - there's no image registry configured yet
+      # (UPGRADE_PLAN.md §7 notes this as a follow-up once that's decided).
+      # This just needs to catch Dockerfile breakage.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: s1000-diagnoser-api:ci
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      # Recommended two-step swap for the local cache backend, so it doesn't
+      # grow unbounded across runs.
+      - name: Swap in new cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache

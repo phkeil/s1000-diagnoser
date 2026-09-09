@@ -1,0 +1,23 @@
+# Large audio assets should not be tracked
+/data/
+
+*.pth
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual envs and conda environments
+.venv/
+envs/
+.conda/
+.mamba_lock
+
+# MLFlow
+mlruns/
+mlflow.db
+.mlflow/
+
+# claude code
+AGENTS.md
+UPGRADE_PLAN.md

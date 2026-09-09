@@ -1,0 +1,23 @@
+# Minimal, pinned runtime deps for the inference container (UPGRADE_PLAN.md §5-6).
+# Kept separate from environment.yml (the full dev/notebook env) so the served
+# image stays small - no matplotlib, pandas is only needed for score_segments'
+# rolling-mean smoothing so it stays here, scikit-learn/seaborn/opencv (dev-only,
+# used by notebooks) are intentionally excluded.
+#
+# Versions pinned to what's installed in the s1000-diagnoser conda env today.
+# torch/torchvision are pinned to the same version as environment.yml; the
+# Dockerfile (UPGRADE_PLAN.md §6) is expected to install the CPU-only wheels of
+# the same versions via PyTorch's CPU extra index, not these full GPU/MPS builds.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+torch==2.11.0
+torchvision==0.26.0
+librosa==0.10.2.post1
+numpy==2.4.4
+scipy==1.17.1
+pillow==12.1.1
+pydantic==2.13.5
+python-multipart==0.0.32
+mlflow==3.16.0
+pandas==3.0.2
+pyyaml==6.0.3

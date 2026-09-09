@@ -2,3 +2,4 @@
 # environment.yml/requirements-api.txt cover runtime deps separately.
 pytest==9.1.1
 httpx==0.28.1
+ruff==0.16.6

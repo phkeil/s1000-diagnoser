@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+# Without this, `tests/` (no __init__.py) becomes pytest's sys.path insertion
+# point instead of the repo root, so `from src...` imports fail with
+# ModuleNotFoundError when running bare `pytest` (only `python -m pytest`
+# happened to work, because -m adds the cwd to sys.path itself).
+pythonpath = ["."]
+testpaths = ["tests"]

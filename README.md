@@ -3,6 +3,9 @@
 Audio-based engine fault detection for BMW S1000R motorcycles, served as a FastAPI inference API with MLflow-tracked model training.
 
 [![CI](https://github.com/phkeil/s1000-diagnoser/actions/workflows/ci.yml/badge.svg)](https://github.com/phkeil/s1000-diagnoser/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.11-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Overview
 

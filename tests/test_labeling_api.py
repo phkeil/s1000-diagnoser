@@ -94,6 +94,73 @@ def test_upload_falls_back_to_default_domain_without_a_hint_in_filename(client, 
     assert response.json()["domain"] == cfg.anomaly.default_domain
 
 
+def test_upload_captures_recording_metadata_and_auto_derives_codec(client, sine_wave_audio_file):
+    with open(sine_wave_audio_file, "rb") as f:
+        response = client.post(
+            "/uploads",
+            files={"file": ("sine.wav", f, "audio/wav")},
+            data={
+                "contributor": "Philip",
+                "exhaust_system": "Akrapovic",
+                "model_year": "2015",
+                "kilometers_on_bike": "42000.5",
+                "oil_type": "10W-40 full synthetic",
+            },
+        )
+
+    assert response.status_code == 201
+    metadata = response.json()["source_metadata"]
+    assert metadata["contributor"] == "Philip"
+    assert metadata["exhaust_system"] == "Akrapovic"
+    assert metadata["model_year"] == 2015
+    assert metadata["kilometers_on_bike"] == 42000.5
+    assert metadata["oil_type"] == "10W-40 full synthetic"
+    assert metadata["original_codec"] == "wav"  # derived server-side, never client-supplied
+    assert metadata["recording_device"] is None
+    assert metadata["known_issues"] is None
+    assert metadata["notes"] is None
+
+
+def test_upload_without_recording_metadata_defaults_to_all_none_except_codec(client, sine_wave_audio_file):
+    response = _upload_sine_wave(client, sine_wave_audio_file)
+
+    metadata = response.json()["source_metadata"]
+    assert metadata["original_codec"] == "wav"
+    for field in ("contributor", "recording_device", "exhaust_system", "model_year", "known_issues", "notes"):
+        assert metadata[field] is None
+
+
+def test_confirm_passes_recording_metadata_through_to_get_or_create_source_file(
+    client, sine_wave_audio_file, monkeypatch
+):
+    with open(sine_wave_audio_file, "rb") as f:
+        upload = client.post(
+            "/uploads",
+            files={"file": ("sine.wav", f, "audio/wav")},
+            data={"contributor": "Philip", "known_issues": "faint rattle at idle"},
+        ).json()
+
+    monkeypatch.setattr(labeling.manifest, "get_connection", lambda path: _FakeConnection())
+    monkeypatch.setattr(labeling.manifest, "init_db", lambda conn: None)
+    monkeypatch.setattr(labeling.manifest, "add_segment", lambda *a, **kw: 1)
+
+    captured = {}
+
+    def fake_get_or_create_source_file(conn, file_path, domain, **kwargs):
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(labeling.manifest, "get_or_create_source_file", fake_get_or_create_source_file)
+
+    segment_id = upload["segments"][0]["segment_id"]
+    client.post(f"/uploads/{upload['upload_id']}/confirm", json={"labels": [{"segment_id": segment_id, "label": "healthy"}]})
+
+    metadata = captured["metadata"]
+    assert metadata.contributor == "Philip"
+    assert metadata.known_issues == "faint rattle at idle"
+    assert metadata.original_codec == "wav"
+
+
 def test_get_upload_returns_same_shape_as_post(client, sine_wave_audio_file):
     post_response = _upload_sine_wave(client, sine_wave_audio_file)
     upload_id = post_response.json()["upload_id"]

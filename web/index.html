@@ -29,6 +29,38 @@
         <span id="upload-status" class="status-text"></span>
       </div>
 
+      <details class="recording-details">
+        <summary>Recording details (optional)</summary>
+        <div class="recording-details-grid">
+          <label for="meta-contributor">Contributor</label>
+          <input id="meta-contributor" type="text" placeholder="e.g. Philip" />
+
+          <label for="meta-recording-device">Recording device</label>
+          <input id="meta-recording-device" type="text" placeholder="e.g. iPhone 13" />
+
+          <label for="meta-exhaust-system">Exhaust system</label>
+          <input id="meta-exhaust-system" type="text" placeholder="Leave blank if original" />
+
+          <label for="meta-model-year">Model year</label>
+          <input id="meta-model-year" type="number" min="1900" max="2100" step="1" />
+
+          <label for="meta-kilometers-on-bike">Kilometers on bike</label>
+          <input id="meta-kilometers-on-bike" type="number" min="0" step="any" />
+
+          <label for="meta-oil-type">Oil type</label>
+          <input id="meta-oil-type" type="text" placeholder="e.g. 10W-40 full synthetic" />
+
+          <label for="meta-kilometers-since-oilchange">Km since last oil change</label>
+          <input id="meta-kilometers-since-oilchange" type="number" min="0" step="any" />
+
+          <label for="meta-known-issues">Known issues</label>
+          <input id="meta-known-issues" type="text" placeholder="e.g. faint rattle at idle since spring" />
+
+          <label for="meta-notes">Notes</label>
+          <input id="meta-notes" type="text" placeholder="Anything else worth recording" />
+        </div>
+      </details>
+
       <div id="waveform-panel" class="waveform-panel" hidden>
         <div id="waveform"></div>
         <div class="waveform-controls">

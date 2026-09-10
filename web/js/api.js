@@ -17,11 +17,22 @@ async function requestJson(input, init) {
   return response.json();
 }
 
-export async function uploadFile(file, domain) {
+// metadata: plain object of optional recording-details form fields (contributor,
+// recording_device, exhaust_system, model_year, kilometers_on_bike, oil_type,
+// kilometers_since_last_oilchange, known_issues, notes). Only non-empty values
+// are sent, so an omitted field reaches the server as its true default (None)
+// rather than an empty string. original_codec is never sent - the server
+// derives it from the upload's own file extension.
+export async function uploadFile(file, domain, metadata = {}) {
   const form = new FormData();
   form.append("file", file);
   if (domain) {
     form.append("domain", domain);
+  }
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value !== null && value !== undefined && value !== "") {
+      form.append(key, value);
+    }
   }
   return requestJson("/uploads", { method: "POST", body: form });
 }

@@ -18,6 +18,25 @@ class SegmentInfo(BaseModel):
     end_time: float
 
 
+class SourceMetadata(BaseModel):
+    """Optional descriptive metadata about the uploaded recording - mirrors
+    src.manifest.SourceFileMetadata field-for-field. contributor/exhaust_system/
+    oil_type/etc. are filled in by whoever uploads their own bike's recording;
+    original_codec is captured automatically from the upload's file extension,
+    never supplied by the client."""
+
+    contributor: Optional[str] = None
+    recording_device: Optional[str] = None
+    original_codec: Optional[str] = None
+    exhaust_system: Optional[str] = None
+    model_year: Optional[int] = None
+    kilometers_on_bike: Optional[float] = None
+    oil_type: Optional[str] = None
+    kilometers_since_last_oilchange: Optional[float] = None
+    known_issues: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class UploadResponse(BaseModel):
     upload_id: str
     filename: str
@@ -25,6 +44,7 @@ class UploadResponse(BaseModel):
     sample_rate: int
     segment_duration_seconds: float
     step_duration_seconds: float
+    source_metadata: SourceMetadata
     segments: list[SegmentInfo]
 
 

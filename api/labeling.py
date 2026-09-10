@@ -37,6 +37,7 @@ from api.labeling_schemas import (
     ConfirmResponse,
     DomainLiteral,
     SegmentInfo,
+    SourceMetadata,
     TrainJobResponse,
     TrainRequest,
     UploadResponse,
@@ -95,12 +96,23 @@ def _sanitize_filename(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", name)
 
 
-def stage_uploaded_audio(audio: np.ndarray, sr: int, filename: str, domain: str, cfg: Config) -> dict:
+def stage_uploaded_audio(
+    audio: np.ndarray,
+    sr: int,
+    filename: str,
+    domain: str,
+    cfg: Config,
+    source_metadata: Optional[manifest.SourceFileMetadata] = None,
+) -> dict:
     """Chunk already-decoded audio and register an in-memory upload session.
 
     Same logic POST /uploads runs from the chunking step onward - exposed as
     a plain function so Phase 3's crawler can hand off a downloaded clip
-    in-process, with no HTTP round-trip needed.
+    in-process, with no HTTP round-trip needed. A crawler-downloaded clip
+    isn't the crawler operator's own bike, so it will typically only ever
+    populate original_codec (from the extracted audio's actual format) and
+    maybe notes (e.g. the source video's title) on source_metadata - every
+    other field stays at its None default rather than being guessed at.
     """
     chunks = chunk_audio(audio, sr, cfg.audio.segment_duration, cfg.audio.step_duration)
     upload_id = str(uuid.uuid4())
@@ -111,6 +123,7 @@ def stage_uploaded_audio(audio: np.ndarray, sr: int, filename: str, domain: str,
         "sample_rate": sr,
         "audio": audio,
         "chunks": chunks,
+        "source_metadata": source_metadata or manifest.SourceFileMetadata(),
     }
     _upload_sessions[upload_id] = session
     return session
@@ -134,6 +147,7 @@ def _session_to_upload_response(session: dict, cfg: Config) -> UploadResponse:
         sample_rate=session["sample_rate"],
         segment_duration_seconds=cfg.audio.segment_duration,
         step_duration_seconds=cfg.audio.step_duration,
+        source_metadata=SourceMetadata(**vars(session["source_metadata"])),
         segments=segments,
     )
 
@@ -151,7 +165,19 @@ def _resolve_segment(segment_id: str) -> Tuple[dict, int]:
 
 
 @router.post("/uploads", response_model=UploadResponse, status_code=201)
-async def create_upload(file: UploadFile = File(...), domain: DomainLiteral = Form(None)) -> UploadResponse:
+async def create_upload(
+    file: UploadFile = File(...),
+    domain: DomainLiteral = Form(None),
+    contributor: Optional[str] = Form(None),
+    recording_device: Optional[str] = Form(None),
+    exhaust_system: Optional[str] = Form(None),
+    model_year: Optional[int] = Form(None),
+    kilometers_on_bike: Optional[float] = Form(None),
+    oil_type: Optional[str] = Form(None),
+    kilometers_since_last_oilchange: Optional[float] = Form(None),
+    known_issues: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+) -> UploadResponse:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
@@ -173,7 +199,21 @@ async def create_upload(file: UploadFile = File(...), domain: DomainLiteral = Fo
         audio, sr = load_audio(str(tmp_path), sample_rate=_cfg.audio.sample_rate)
 
     resolved_domain = domain or infer_domain(original_name, _cfg)
-    session = stage_uploaded_audio(audio, sr, original_name, resolved_domain, _cfg)
+    # original_codec always comes from the upload's actual suffix, never
+    # from the client - the rest is exactly what the uploader typed in.
+    source_metadata = manifest.SourceFileMetadata(
+        contributor=contributor,
+        recording_device=recording_device,
+        original_codec=suffix.lstrip("."),
+        exhaust_system=exhaust_system,
+        model_year=model_year,
+        kilometers_on_bike=kilometers_on_bike,
+        oil_type=oil_type,
+        kilometers_since_last_oilchange=kilometers_since_last_oilchange,
+        known_issues=known_issues,
+        notes=notes,
+    )
+    session = stage_uploaded_audio(audio, sr, original_name, resolved_domain, _cfg, source_metadata=source_metadata)
     return _session_to_upload_response(session, _cfg)
 
 
@@ -213,6 +253,7 @@ def _persist_source_file(conn, session: dict) -> int:
         session["domain"],
         sample_rate=session["sample_rate"],
         duration_seconds=len(session["audio"]) / session["sample_rate"],
+        metadata=session["source_metadata"],
     )
 
 

@@ -11,6 +11,18 @@ const fileInput = document.getElementById("file-input");
 const domainSelect = document.getElementById("domain-select");
 const uploadButton = document.getElementById("upload-button");
 const uploadStatus = document.getElementById("upload-status");
+
+const metadataFieldIds = {
+  contributor: "meta-contributor",
+  recording_device: "meta-recording-device",
+  exhaust_system: "meta-exhaust-system",
+  model_year: "meta-model-year",
+  kilometers_on_bike: "meta-kilometers-on-bike",
+  oil_type: "meta-oil-type",
+  kilometers_since_last_oilchange: "meta-kilometers-since-oilchange",
+  known_issues: "meta-known-issues",
+  notes: "meta-notes",
+};
 const waveformPanel = document.getElementById("waveform-panel");
 const waveformContainer = document.getElementById("waveform");
 const playAllButton = document.getElementById("play-all-button");
@@ -30,6 +42,14 @@ export function initUploadTab() {
   confirmButton.addEventListener("click", handleConfirm);
 }
 
+function collectRecordingMetadata() {
+  const metadata = {};
+  for (const [field, elementId] of Object.entries(metadataFieldIds)) {
+    metadata[field] = document.getElementById(elementId).value.trim();
+  }
+  return metadata;
+}
+
 async function handleUpload() {
   const file = fileInput.files[0];
   if (!file) {
@@ -40,7 +60,7 @@ async function handleUpload() {
   uploadButton.disabled = true;
   uploadStatus.textContent = "Uploading…";
   try {
-    const response = await uploadFile(file, domainSelect.value || undefined);
+    const response = await uploadFile(file, domainSelect.value || undefined, collectRecordingMetadata());
     currentUploadId = response.upload_id;
     currentSegments = response.segments;
     labelsBySegmentId = new Map();

@@ -20,7 +20,12 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+# v2 added source_files' descriptive metadata columns (contributor,
+# recording_device, ... - see SourceFileMetadata below). No migration system
+# exists yet (see module docstring's "no ORM" note) - safe to change the
+# CREATE TABLE directly rather than write an ALTER TABLE migration, since no
+# schema-v1 database has ever been populated outside of tests.
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS source_files (
@@ -30,6 +35,16 @@ CREATE TABLE IF NOT EXISTS source_files (
     domain TEXT NOT NULL CHECK(domain IN ('Garage','YouTube')),
     sample_rate INTEGER,
     duration_seconds REAL,
+    contributor TEXT,
+    recording_device TEXT,
+    original_codec TEXT,
+    exhaust_system TEXT,
+    model_year INTEGER,
+    kilometers_on_bike REAL,
+    oil_type TEXT,
+    kilometers_since_last_oilchange REAL,
+    known_issues TEXT,
+    notes TEXT,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -73,6 +88,34 @@ class ManifestSegment:
     rendered_png_path: Optional[str]
 
 
+@dataclass
+class SourceFileMetadata:
+    """Optional descriptive metadata about a source recording - who
+    contributed it and what state the bike/consumables were in, plus (for a
+    manual upload) the container format it originally arrived in.
+
+    Every field is nullable by design: a crawler-downloaded YouTube clip
+    (Phase 3) isn't the crawler operator's own bike, so only original_codec
+    (and maybe notes, e.g. the source video's title) will ever be populated
+    for those rows - contributor/exhaust_system/oil_type/etc. simply stay
+    NULL rather than being guessed at.
+
+    exhaust_system is NULL for a bike's original/stock exhaust; a non-NULL
+    value names the aftermarket system fitted instead.
+    """
+
+    contributor: Optional[str] = None
+    recording_device: Optional[str] = None
+    original_codec: Optional[str] = None
+    exhaust_system: Optional[str] = None
+    model_year: Optional[int] = None
+    kilometers_on_bike: Optional[float] = None
+    oil_type: Optional[str] = None
+    kilometers_since_last_oilchange: Optional[float] = None
+    known_issues: Optional[str] = None
+    notes: Optional[str] = None
+
+
 def get_connection(db_path: str) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,19 +150,44 @@ def get_or_create_source_file(
     source_url: Optional[str] = None,
     sample_rate: Optional[int] = None,
     duration_seconds: Optional[float] = None,
+    metadata: Optional[SourceFileMetadata] = None,
 ) -> int:
+    """metadata is only ever consulted the first time file_path is seen - an
+    existing row's descriptive metadata isn't updated on a later call, same
+    as its source_url/sample_rate/duration_seconds today."""
     existing = conn.execute(
         "SELECT id FROM source_files WHERE file_path = ?", (file_path,)
     ).fetchone()
     if existing is not None:
         return existing["id"]
 
+    metadata = metadata or SourceFileMetadata()
     cur = conn.execute(
         """
-        INSERT INTO source_files (file_path, source_url, domain, sample_rate, duration_seconds)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO source_files (
+            file_path, source_url, domain, sample_rate, duration_seconds,
+            contributor, recording_device, original_codec, exhaust_system,
+            model_year, kilometers_on_bike, oil_type, kilometers_since_last_oilchange,
+            known_issues, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (file_path, source_url, domain, sample_rate, duration_seconds),
+        (
+            file_path,
+            source_url,
+            domain,
+            sample_rate,
+            duration_seconds,
+            metadata.contributor,
+            metadata.recording_device,
+            metadata.original_codec,
+            metadata.exhaust_system,
+            metadata.model_year,
+            metadata.kilometers_on_bike,
+            metadata.oil_type,
+            metadata.kilometers_since_last_oilchange,
+            metadata.known_issues,
+            metadata.notes,
+        ),
     )
     conn.commit()
     return cur.lastrowid

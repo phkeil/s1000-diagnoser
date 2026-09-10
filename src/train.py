@@ -220,6 +220,7 @@ def train(args: argparse.Namespace) -> str:
                     "YouTube", cfg.anomaly.domain_baselines.get("YouTube", float("nan"))
                 ),
                 "rel_threshold": thresholds.rel_threshold,
+                "healthy_median_score": thresholds.healthy_median_score,
                 "final_val_mse_loss": val_loss,
             }
         )

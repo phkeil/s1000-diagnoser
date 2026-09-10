@@ -169,6 +169,8 @@ async def predict(
     return PredictionResponse(
         segment_scores=[s.raw_score for s in result.segments],
         relative_scores=[s.relative_score for s in result.segments],
+        confidence_scores=[s.confidence for s in result.segments],
+        overall_confidence=result.max_confidence,
         is_anomalous=result.is_anomalous,
         model_version=state.model_version,
     )

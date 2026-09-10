@@ -7,6 +7,7 @@ Pipeline: reconstruction MSE per segment -> normalize by the segment's
 per-domain healthy baseline -> rolling-mean smoothing -> threshold.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -63,6 +64,7 @@ class SegmentScore:
     raw_score: float
     relative_score: float
     smoothed_score: float
+    confidence: float
     is_anomalous: bool
 
 
@@ -76,6 +78,45 @@ class AnomalyResult:
     @property
     def is_anomalous(self) -> bool:
         return any(s.is_anomalous for s in self.segments)
+
+    @property
+    def max_confidence(self) -> float:
+        return max((s.confidence for s in self.segments), default=0.0)
+
+
+# sigmoid(healthy_median_score) target: a *typical* healthy segment should
+# read as low-but-not-zero confidence, not flatline at exactly 0.
+_CONFIDENCE_FLOOR = 0.05
+
+
+def _stable_sigmoid(x: float) -> float:
+    """math.exp() only ever sees a non-positive argument here, so this can't
+    OverflowError even for a pathological threshold/healthy_median_score
+    (e.g. a misconfigured config.yaml) - the naive 1/(1+exp(-x)) form can."""
+    if x >= 0:
+        return 1.0 / (1.0 + math.exp(-x))
+    exp_x = math.exp(x)
+    return exp_x / (1.0 + exp_x)
+
+
+def anomaly_confidence(smoothed_score: float, threshold: float, healthy_median_score: float) -> float:
+    """Smooth 0-1 stand-in for the old `smoothed_score > threshold` cutoff.
+
+    A sigmoid centered exactly on `threshold` - confidence == 0.5 is the same
+    crossing point the old is_anomalous flag used - with its width solved so
+    a *typical* healthy segment (healthy_median_score, from
+    src/thresholds.py's compute_thresholds()) reads as _CONFIDENCE_FLOOR
+    rather than sitting at a flat 0.
+
+    This is deliberately NOT a calibrated P(defective | score): the CAE is
+    trained only on healthy audio, so nothing here has ever been fit against
+    a real defective example. It's a smoother, more informative rescaling of
+    the same reconstruction-error signal the hard threshold already used -
+    not a new statistical claim about how likely a fault actually is.
+    """
+    spread = max(threshold - healthy_median_score, 1e-6)
+    scale = spread / math.log((1 - _CONFIDENCE_FLOOR) / _CONFIDENCE_FLOOR)
+    return _stable_sigmoid((smoothed_score - threshold) / scale)
 
 
 def score_segments(raw_scores: List[float], start_times: List[float], domain: str, cfg: Config) -> AnomalyResult:
@@ -98,6 +139,7 @@ def score_segments(raw_scores: List[float], start_times: List[float], domain: st
             raw_score=raw_scores[i],
             relative_score=relative_scores[i],
             smoothed_score=smoothed_scores[i],
+            confidence=anomaly_confidence(smoothed_scores[i], threshold, cfg.anomaly.healthy_median_score),
             is_anomalous=smoothed_scores[i] > threshold,
         )
         for i in range(len(raw_scores))

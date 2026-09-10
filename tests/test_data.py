@@ -4,12 +4,14 @@ import torch
 from PIL import Image
 
 from src.data import (
+    ManifestDataset,
     MelSpectrogramDataset,
     build_transform,
     infer_label_from_filename,
     preprocess_audio_segment,
     render_mel_spectrogram_image,
 )
+from src.manifest import ManifestSegment
 
 
 def _first_segment(sine_wave_signal, cfg):
@@ -102,3 +104,45 @@ def test_mel_spectrogram_dataset_ignores_non_image_files(tmp_path, cfg):
     dataset = MelSpectrogramDataset(tmp_path, transform=build_transform(cfg))
 
     assert len(dataset) == 1
+
+
+def test_manifest_dataset_fast_path_loads_cached_png_without_touching_audio(tmp_path, cfg):
+    png_path = tmp_path / "cached.png"
+    _write_dummy_png(png_path)
+
+    row = ManifestSegment(
+        id=1,
+        source_file_id=1,
+        source_file_path=str(tmp_path / "does-not-exist.wav"),
+        start_time_seconds=0.0,
+        duration_seconds=cfg.audio.segment_duration,
+        label="healthy",
+        domain="YouTube",
+        rendered_png_path=str(png_path),
+    )
+
+    dataset = ManifestDataset([row], transform=build_transform(cfg), cfg=cfg)
+    tensor, label = dataset[0]
+
+    assert len(dataset) == 1
+    assert tensor.shape == (3, cfg.image.size[0], cfg.image.size[1])
+    assert label == 0
+
+
+def test_manifest_dataset_slow_path_renders_from_source_audio(sine_wave_audio_file, cfg):
+    row = ManifestSegment(
+        id=1,
+        source_file_id=1,
+        source_file_path=str(sine_wave_audio_file),
+        start_time_seconds=0.0,
+        duration_seconds=cfg.audio.segment_duration,
+        label="defective",
+        domain="Garage",
+        rendered_png_path=None,
+    )
+
+    dataset = ManifestDataset([row], transform=build_transform(cfg), cfg=cfg)
+    tensor, label = dataset[0]
+
+    assert tensor.shape == (3, cfg.image.size[0], cfg.image.size[1])
+    assert label == 1

@@ -33,6 +33,7 @@ from api.schemas import DomainLiteral, HealthResponse, PredictionResponse
 from src.config import Config, load_config
 from src.inference import get_device, load_model, score_audio_file
 from src.model import MotorAutoencoder
+from src.thresholds import apply_thresholds, load_thresholds_from_local_file, load_thresholds_from_mlflow_run
 
 logger = logging.getLogger("api")
 
@@ -67,12 +68,23 @@ def _load_from_mlflow(model_uri: str, device: torch.device) -> tuple[MotorAutoen
 
 
 def resolve_model(cfg: Config, device: torch.device) -> ModelState:
-    """MODEL_URI (MLflow) first, local checkpoint.pth fallback - see module docstring."""
+    """MODEL_URI (MLflow) first, local checkpoint.pth fallback - see module docstring.
+
+    Either path also tries to load the anomaly thresholds computed for that
+    specific model (src/train.py, src/thresholds.py) and applies them to cfg;
+    if none are found (e.g. a pre-Phase-1 checkpoint with no thresholds.json),
+    cfg.anomaly's hardcoded config.yaml values are used unchanged.
+    """
     model_uri = os.environ.get("MODEL_URI")
     if model_uri:
         try:
             model, run_id = _load_from_mlflow(model_uri, device)
             logger.info("Loaded model from MLflow: %s (run_id=%s)", model_uri, run_id)
+
+            thresholds = load_thresholds_from_mlflow_run(run_id) if run_id else None
+            if thresholds is not None:
+                cfg = apply_thresholds(cfg, thresholds)
+
             return ModelState(cfg=cfg, device=device, model=model, model_version=model_uri, model_run_id=run_id)
         except Exception as exc:
             logger.warning(
@@ -84,6 +96,12 @@ def resolve_model(cfg: Config, device: torch.device) -> ModelState:
     checkpoint_path = cfg.resolve_path(cfg.model.checkpoint_path)
     model = load_model(cfg, checkpoint_path=checkpoint_path, device=device)
     logger.info("Loaded model from local checkpoint: %s", checkpoint_path)
+
+    thresholds_path = Path(checkpoint_path).parent / "thresholds.json"
+    thresholds = load_thresholds_from_local_file(str(thresholds_path))
+    if thresholds is not None:
+        cfg = apply_thresholds(cfg, thresholds)
+
     return ModelState(cfg=cfg, device=device, model=model, model_version=str(checkpoint_path), model_run_id=None)
 
 

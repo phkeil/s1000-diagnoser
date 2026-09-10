@@ -1,8 +1,13 @@
 """Pydantic request/response models for the inference API (UPGRADE_PLAN.md §5)."""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
+
+# Matches the keys of config.yaml's anomaly.domain_baselines. Shared by the
+# /predict Form field (api/main.py) and src.inference.score_audio_file's
+# optional domain override.
+DomainLiteral = Optional[Literal["Garage", "YouTube"]]
 
 
 class PredictionResponse(BaseModel):

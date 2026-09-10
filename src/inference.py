@@ -111,10 +111,14 @@ def score_audio_file(
     model: MotorAutoencoder,
     cfg: Config,
     device: Optional[torch.device] = None,
+    domain: Optional[str] = None,
 ) -> AnomalyResult:
     """End-to-end: load audio -> chunk -> preprocess -> reconstruction MSE per
     segment -> domain-normalized, smoothed anomaly result. This is what the
-    FastAPI /predict endpoint calls."""
+    FastAPI /predict endpoint calls.
+
+    domain can be 'Garage' or 'YouTube'. If not supplied, inferred from filename.
+    """
     device = device or get_device()
     transform = build_transform(cfg)
 
@@ -127,5 +131,6 @@ def score_audio_file(
         raw_scores.append(reconstruction_error(model, segment_tensor, device))
         start_times.append(start_time)
 
-    domain = infer_domain(str(audio_path), cfg)
+    if domain is None:
+        domain = infer_domain(str(audio_path), cfg)
     return score_segments(raw_scores, start_times, domain, cfg)

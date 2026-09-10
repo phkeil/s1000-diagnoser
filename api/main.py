@@ -4,6 +4,11 @@ POST /predict runs the same load -> chunk -> preprocess -> score pipeline as
 src.inference.score_audio_file (which this endpoint calls directly); GET
 /health reports which model is currently loaded.
 
+POST /predict accepts an optional `domain` form field ('Garage' or 'YouTube')
+that, when supplied, overrides the filename-based heuristic in
+src.inference.infer_domain. Uploads over MAX_UPLOAD_BYTES are rejected with a
+413 before any audio processing happens.
+
 Model loading (once, at startup): MODEL_URI, if set, is treated as an MLflow
 model URI (e.g. "models:/s1000-cae-anomaly/Production") and loaded via
 mlflow.pytorch.load_model. If MODEL_URI is unset, or loading from it fails for
@@ -22,9 +27,9 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 
-from api.schemas import HealthResponse, PredictionResponse
+from api.schemas import DomainLiteral, HealthResponse, PredictionResponse
 from src.config import Config, load_config
 from src.inference import get_device, load_model, score_audio_file
 from src.model import MotorAutoencoder
@@ -32,6 +37,7 @@ from src.model import MotorAutoencoder
 logger = logging.getLogger("api")
 
 ALLOWED_SUFFIXES = {".wav", ".m4a"}
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 @dataclass
@@ -104,6 +110,7 @@ def health(state: ModelState = Depends(get_model_state)) -> HealthResponse:
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(
     file: UploadFile = File(...),
+    domain: DomainLiteral = Form(None),
     state: ModelState = Depends(get_model_state),
 ) -> PredictionResponse:
     suffix = Path(file.filename or "").suffix.lower()
@@ -113,18 +120,25 @@ async def predict(
             detail=f"Unsupported file type '{suffix}'. Expected one of {sorted(ALLOWED_SUFFIXES)}.",
         )
 
+    # Read at most one byte over the cap: rejects an oversized upload without
+    # ever buffering more of it than needed to know it's too big.
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Maximum upload size is 50 MB.")
+
     # Written under the *original* filename (sanitized to a bare basename, to
     # avoid path traversal) rather than a random temp name, because
     # score_audio_file()/infer_domain() read domain hints (e.g. 'Philip',
-    # 'Andre') from the filename to pick the right healthy baseline.
+    # 'Andre') from the filename to pick the right healthy baseline - unless
+    # domain is supplied explicitly above, which takes precedence.
     original_name = Path(file.filename or f"upload{suffix}").name
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir) / original_name
-        tmp_path.write_bytes(await file.read())
+        tmp_path.write_bytes(contents)
 
         try:
-            result = score_audio_file(tmp_path, state.model, state.cfg, device=state.device)
+            result = score_audio_file(tmp_path, state.model, state.cfg, device=state.device, domain=domain)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Could not process audio file: {exc}") from exc
 

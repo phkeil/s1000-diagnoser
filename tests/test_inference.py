@@ -89,3 +89,12 @@ def test_score_audio_file_end_to_end_with_synthetic_checkpoint(sine_wave_audio_f
         assert math.isfinite(segment.relative_score)
         assert math.isfinite(segment.smoothed_score)
         assert isinstance(segment.is_anomalous, bool)
+
+
+def test_score_audio_file_explicit_domain_skips_filename_inference(sine_wave_audio_file, synthetic_model, cfg, device):
+    # "sine.wav" contains none of cfg.anomaly.garage_name_hints, so infer_domain()
+    # would default to "YouTube" - passing domain="Garage" must override that.
+    result = score_audio_file(sine_wave_audio_file, synthetic_model, cfg, device=device, domain="Garage")
+
+    assert result.domain == "Garage"
+    assert result.baseline == cfg.anomaly.domain_baselines["Garage"]

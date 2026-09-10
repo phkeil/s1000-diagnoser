@@ -100,7 +100,15 @@ curl -X POST http://127.0.0.1:8000/predict \
   -F "file=@/path/to/your/audio.wav;type=audio/wav"
 ```
 
-Accepts `.wav` or `.m4a` files. `.wav` is recommended to avoid platform-specific AAC decoder variance.
+Accepts `.wav` or `.m4a` files, up to **50 MB**; larger uploads are rejected with `413` before any processing. `.wav` is recommended to avoid platform-specific AAC decoder variance.
+
+`/predict` also takes an optional `domain` form field (`"Garage"` or `"YouTube"`) that overrides the filename-based heuristic used to pick the healthy reconstruction-error baseline — useful when the upload's filename doesn't carry one of the recognized hints:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -F "file=@recording.m4a" \
+  -F "domain=Garage"
+```
 
 `/health` returns the loaded model version and (if tracked) its MLflow run ID. `/predict` returns per-segment reconstruction scores, their domain-normalized equivalents, and an overall `is_anomalous` flag.
 
@@ -122,16 +130,18 @@ docker run -d --name s1000-diagnoser-api -p 8000:8000 \
   s1000-diagnoser-api:latest
 ```
 
-Same requests as above work against the container:
+Same requests as above work against the container, including the optional `domain` field and the 50 MB upload cap described above:
 
 ```bash
 curl http://localhost:8000/health
 
 curl -X POST http://127.0.0.1:8000/predict \
   -F "file=@/path/to/your/audio.wav;type=audio/wav"
-```
 
-Accepts `.wav` or `.m4a` files. `.wav` is recommended to avoid platform-specific AAC decoder variance.
+curl -X POST http://127.0.0.1:8000/predict \
+  -F "file=@recording.m4a" \
+  -F "domain=Garage"
+```
 
 See `DOCKER.md` for the full VirtioFS/gRPC FUSE fix if you'd rather mount `models/` directly.
 

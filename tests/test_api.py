@@ -15,7 +15,7 @@ replaced by the override below, so the route never touches app.state at all.
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import ModelState, app, get_model_state
+from api.main import MAX_UPLOAD_BYTES, ModelState, app, get_model_state
 from src.inference import load_model
 
 FAKE_MODEL_VERSION = "synthetic-test-checkpoint"
@@ -74,3 +74,37 @@ def test_predict_with_unsupported_file_type_returns_400(client):
 
     assert response.status_code == 400
     assert "Unsupported file type" in response.json()["detail"]
+
+
+def test_predict_with_explicit_domain_overrides_filename_heuristic(client, sine_wave_audio_file, cfg):
+    # "sine.wav" contains none of cfg.anomaly.garage_name_hints, so the
+    # filename heuristic alone would infer "YouTube" (the default domain).
+    with open(sine_wave_audio_file, "rb") as f:
+        default_response = client.post("/predict", files={"file": ("sine.wav", f, "audio/wav")})
+    with open(sine_wave_audio_file, "rb") as f:
+        garage_response = client.post(
+            "/predict",
+            files={"file": ("sine.wav", f, "audio/wav")},
+            data={"domain": "Garage"},
+        )
+
+    assert default_response.status_code == 200
+    assert garage_response.status_code == 200
+
+    youtube_baseline = cfg.anomaly.domain_baselines["YouTube"]
+    garage_baseline = cfg.anomaly.domain_baselines["Garage"]
+    expected_ratio = youtube_baseline / garage_baseline
+
+    default_scores = default_response.json()["relative_scores"]
+    garage_scores = garage_response.json()["relative_scores"]
+    for default_score, garage_score in zip(default_scores, garage_scores):
+        assert garage_score == pytest.approx(default_score * expected_ratio, rel=1e-6)
+
+
+def test_predict_with_oversized_file_returns_413(client):
+    oversized = b"0" * (MAX_UPLOAD_BYTES + 1)
+
+    response = client.post("/predict", files={"file": ("big.wav", oversized, "audio/wav")})
+
+    assert response.status_code == 413
+    assert "Maximum upload size" in response.json()["detail"]

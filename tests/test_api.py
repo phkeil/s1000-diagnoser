@@ -12,11 +12,15 @@ in tests. Skipping lifespan is safe here because get_model_state is fully
 replaced by the override below, so the route never touches app.state at all.
 """
 
+import dataclasses
+
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import MAX_UPLOAD_BYTES, ModelState, app, get_model_state
+import api.main as api_main
+from api.main import MAX_UPLOAD_BYTES, ModelState, app, get_model_state, resolve_model
 from src.inference import load_model
+from src.thresholds import ThresholdSet, save_thresholds_locally
 
 FAKE_MODEL_VERSION = "synthetic-test-checkpoint"
 FAKE_MODEL_RUN_ID = "test-run-id"
@@ -108,3 +112,79 @@ def test_predict_with_oversized_file_returns_413(client):
 
     assert response.status_code == 413
     assert "Maximum upload size" in response.json()["detail"]
+
+
+def _cfg_with_checkpoint(cfg, checkpoint_path):
+    """A cfg whose model.checkpoint_path is an absolute tmp_path location -
+    cfg.resolve_path() leaves an absolute path unchanged, so resolve_model()
+    never touches the real models/ checkpoint in these tests."""
+    model_cfg = dataclasses.replace(cfg.model, checkpoint_path=str(checkpoint_path))
+    return dataclasses.replace(cfg, model=model_cfg)
+
+
+def test_resolve_model_local_checkpoint_path_applies_sibling_thresholds(
+    monkeypatch, cfg, synthetic_checkpoint_path, device
+):
+    monkeypatch.delenv("MODEL_URI", raising=False)
+
+    thresholds = ThresholdSet(
+        rel_threshold=cfg.anomaly.rel_threshold + 5,
+        domain_baselines={"Garage": 123.0, "YouTube": 456.0},
+        run_id=None,
+        computed_at="2024-01-01T00:00:00+00:00",
+        val_segment_counts={"Garage": 10, "YouTube": 12},
+    )
+    save_thresholds_locally(thresholds, str(synthetic_checkpoint_path.parent / "thresholds.json"))
+
+    test_cfg = _cfg_with_checkpoint(cfg, synthetic_checkpoint_path)
+
+    state = resolve_model(test_cfg, device)
+
+    assert state.cfg.anomaly.rel_threshold == thresholds.rel_threshold
+    assert state.cfg.anomaly.domain_baselines["Garage"] == 123.0
+
+
+def test_resolve_model_local_checkpoint_path_falls_back_to_config_default_without_thresholds_file(
+    monkeypatch, cfg, synthetic_checkpoint_path, device
+):
+    monkeypatch.delenv("MODEL_URI", raising=False)
+    # No thresholds.json written next to synthetic_checkpoint_path.
+
+    test_cfg = _cfg_with_checkpoint(cfg, synthetic_checkpoint_path)
+
+    state = resolve_model(test_cfg, device)
+
+    assert state.cfg.anomaly.rel_threshold == cfg.anomaly.rel_threshold
+    assert state.cfg.anomaly.domain_baselines == cfg.anomaly.domain_baselines
+
+
+def test_resolve_model_mlflow_path_applies_thresholds_when_available(monkeypatch, cfg, synthetic_model, device):
+    monkeypatch.setenv("MODEL_URI", "models:/s1000-cae-anomaly/Production")
+    monkeypatch.setattr(api_main, "_load_from_mlflow", lambda model_uri, device: (synthetic_model, "run-123"))
+
+    thresholds = ThresholdSet(
+        rel_threshold=cfg.anomaly.rel_threshold + 1,
+        domain_baselines={"Garage": 1.0, "YouTube": 2.0},
+        run_id="run-123",
+        computed_at="2024-01-01T00:00:00+00:00",
+        val_segment_counts={"Garage": 1, "YouTube": 1},
+    )
+    monkeypatch.setattr(api_main, "load_thresholds_from_mlflow_run", lambda run_id: thresholds)
+
+    state = resolve_model(cfg, device)
+
+    assert state.cfg.anomaly.rel_threshold == thresholds.rel_threshold
+    assert state.cfg.anomaly.domain_baselines["Garage"] == 1.0
+
+
+def test_resolve_model_mlflow_path_falls_back_to_config_default_when_thresholds_unavailable(
+    monkeypatch, cfg, synthetic_model, device
+):
+    monkeypatch.setenv("MODEL_URI", "models:/s1000-cae-anomaly/Production")
+    monkeypatch.setattr(api_main, "_load_from_mlflow", lambda model_uri, device: (synthetic_model, "run-123"))
+    monkeypatch.setattr(api_main, "load_thresholds_from_mlflow_run", lambda run_id: None)
+
+    state = resolve_model(cfg, device)
+
+    assert state.cfg.anomaly.rel_threshold == cfg.anomaly.rel_threshold
+    assert state.cfg.anomaly.domain_baselines == cfg.anomaly.domain_baselines

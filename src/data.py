@@ -23,6 +23,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from src.config import Config
+from src.manifest import ManifestSegment
 
 PathLike = Union[str, Path]
 
@@ -144,4 +145,44 @@ class MelSpectrogramDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         path, label = self.samples[idx]
         image = Image.open(path).convert("RGB")
+        return self.transform(image), label
+
+
+class ManifestDataset(Dataset):
+    """Loads training segments from the SQLite manifest (src/manifest.py)
+    instead of a directory of PNGs (see MelSpectrogramDataset above for that
+    case).
+
+    A row's rendered_png_path is used directly when present (the fast path -
+    true for every segment backfilled from the existing dataset_idle_mel*
+    directories or confirmed through the labeling UI). Only a row with no
+    cached render at all falls back to loading + slicing the source audio and
+    rendering on the fly via render_mel_spectrogram_image - the exact same
+    call, so a segment's mel-spectrogram is identical either way.
+    """
+
+    def __init__(self, rows: List[ManifestSegment], transform: transforms.Compose, cfg: Config):
+        self.rows = rows
+        self.transform = transform
+        self.cfg = cfg
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+        row = self.rows[idx]
+        label = 0 if row.label == "healthy" else 1
+
+        png_path = self.cfg.resolve_path(row.rendered_png_path) if row.rendered_png_path else None
+        if png_path is not None and png_path.exists():
+            image = Image.open(png_path).convert("RGB")
+        else:
+            y, sr = librosa.load(
+                self.cfg.resolve_path(row.source_file_path),
+                sr=self.cfg.audio.sample_rate,
+                offset=row.start_time_seconds,
+                duration=row.duration_seconds,
+            )
+            image = render_mel_spectrogram_image(y, sr, self.cfg)
+
         return self.transform(image), label

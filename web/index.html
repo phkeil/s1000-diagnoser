@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>s1000-diagnoser labeling tool</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>s1000-diagnoser labeling tool</h1>
+    <nav class="tabs">
+      <button class="tab-button" data-tab="label" type="button">Label</button>
+      <button class="tab-button" data-tab="train" type="button">Train</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-label" class="tab-panel">
+      <div class="upload-panel">
+        <input id="file-input" type="file" accept=".wav,.m4a" />
+        <label for="domain-select">Domain</label>
+        <select id="domain-select">
+          <option value="">Auto-detect</option>
+          <option value="Garage">Garage</option>
+          <option value="YouTube">YouTube</option>
+        </select>
+        <button id="upload-button" type="button">Upload</button>
+        <span id="upload-status" class="status-text"></span>
+      </div>
+
+      <div id="waveform-panel" class="waveform-panel" hidden>
+        <div id="waveform"></div>
+        <div class="waveform-controls">
+          <button id="play-all-button" type="button">Play from start</button>
+        </div>
+      </div>
+
+      <div id="segments-panel" class="segments-panel" hidden>
+        <div class="segments-toolbar">
+          <span id="segments-summary" class="status-text"></span>
+          <button id="confirm-button" type="button" disabled>Confirm labels</button>
+          <span id="confirm-status" class="status-text"></span>
+        </div>
+        <div id="segments-grid" class="segments-grid"></div>
+      </div>
+    </section>
+
+    <section id="tab-train" class="tab-panel" hidden>
+      <div class="train-panel">
+        <label for="epochs-input">Epochs</label>
+        <input id="epochs-input" type="number" min="1" value="10" />
+        <label for="run-name-input">Run name (optional)</label>
+        <input id="run-name-input" type="text" placeholder="e.g. after-labeling-batch-3" />
+        <button id="retrain-button" type="button">Retrain</button>
+        <span id="train-status" class="status-text"></span>
+      </div>
+
+      <pre id="train-log" class="train-log"></pre>
+
+      <div id="train-metrics" class="train-metrics" hidden>
+        <h2>Run metrics</h2>
+        <dl id="train-metrics-list"></dl>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

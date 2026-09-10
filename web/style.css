@@ -1,0 +1,238 @@
+:root {
+  color-scheme: light dark;
+  --bg: #12141a;
+  --panel: #1b1e27;
+  --border: #2c3040;
+  --text: #e6e8ef;
+  --muted: #9aa1b2;
+  --accent: #5b8def;
+  --healthy: #3ddc84;
+  --defective: #f2545b;
+  --unlabeled: #6b7280;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tab-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tab-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0d12;
+  font-weight: 600;
+}
+
+main {
+  padding: 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.upload-panel,
+.train-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+button {
+  background: var(--accent);
+  border: none;
+  color: #0b0d12;
+  padding: 0.5rem 1.1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+select,
+input[type="text"],
+input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+}
+
+.status-text {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.waveform-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+#waveform {
+  margin-bottom: 0.75rem;
+}
+
+.segments-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.segments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.segment-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.segment-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #000;
+}
+
+.segment-card .segment-time {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.segment-card .segment-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.segment-card .play-button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.label-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.label-toggle button {
+  flex: 1;
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 0;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.3rem;
+}
+
+.label-toggle button.selected[data-label="healthy"] {
+  background: var(--healthy);
+  color: #06231a;
+}
+
+.label-toggle button.selected[data-label="defective"] {
+  background: var(--defective);
+  color: #2b0505;
+}
+
+.label-toggle button.selected[data-label="unlabeled"] {
+  background: var(--unlabeled);
+  color: #12141a;
+}
+
+.train-log {
+  background: #000;
+  color: #c9f2c9;
+  padding: 1rem;
+  border-radius: 8px;
+  min-height: 120px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.train-metrics {
+  margin-top: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.train-metrics dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+
+.train-metrics dt {
+  color: var(--muted);
+}
+
+.train-metrics dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

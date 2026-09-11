@@ -10,11 +10,26 @@ Not part of the Docker image; run locally via:
     uvicorn api.tool_app:app --port 8001 --reload
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from api.labeling import router as labeling_router
 
 app = FastAPI(title="s1000-diagnoser labeling & crawler tool")
 app.include_router(labeling_router)
+
+
+@app.middleware("http")
+async def disable_caching(request: Request, call_next):
+    """`uvicorn --reload` only restarts the process on a .py change - web/
+    (html/css/js) is re-read from disk on every request regardless, so an
+    edit there is always "live". Without this, though, the *browser* still
+    caches those static responses on a normal reload and keeps showing the
+    old version - this is a single-user local dev server, so there's no
+    upside to letting it."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 app.mount("/", StaticFiles(directory="web", html=True), name="web")

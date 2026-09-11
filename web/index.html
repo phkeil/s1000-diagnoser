@@ -21,8 +21,8 @@
         <div class="upload-panel">
           <div class="file-field">
             <input id="file-input" type="file" accept=".wav,.m4a" required class="file-input-native" />
-            <label for="file-input" class="file-input-button">Datei auswählen <span class="required-marker" aria-hidden="true">*</span></label>
-            <span id="file-input-filename" class="file-input-filename">Keine Datei ausgewählt</span>
+            <label for="file-input" class="file-input-button">Choose file <span class="required-marker" aria-hidden="true">*</span></label>
+            <span id="file-input-filename" class="file-input-filename">No file chosen</span>
           </div>
           <label for="domain-select">Domain</label>
           <select id="domain-select">
@@ -30,17 +30,17 @@
             <option value="Garage">Garage</option>
             <option value="YouTube">YouTube</option>
           </select>
-          <button id="upload-button" type="submit">Aufnahme Hochladen</button>
+          <button id="upload-button" type="submit">Upload recording</button>
           <span id="upload-status" class="status-text" role="status"></span>
         </div>
 
         <details class="recording-details" open>
-          <summary>Aufnahme- &amp; Motorraddaten</summary>
-          <p class="required-hint"><span class="required-marker" aria-hidden="true">*</span> Pflichtfeld</p>
+          <summary>Recording &amp; Bike Details</summary>
+          <p class="required-hint"><span class="required-marker" aria-hidden="true">*</span> Required field</p>
           <div class="recording-details-grid">
-            <label for="meta-bike-model">Motorrad-Modell <span class="required-marker" aria-hidden="true">*</span></label>
+            <label for="meta-bike-model">Bike Model <span class="required-marker" aria-hidden="true">*</span></label>
             <select id="meta-bike-model" required>
-              <option value="" disabled selected>Bitte wählen…</option>
+              <option value="" disabled selected>Please select…</option>
               <option value="S1000R">S1000R</option>
               <option value="S1000RR">S1000RR</option>
               <option value="S1000XR">S1000XR</option>
@@ -49,52 +49,52 @@
               <option value="M1000XR">M1000XR</option>
             </select>
 
-            <label for="meta-model-year">Baujahr <span class="required-marker" aria-hidden="true">*</span></label>
-            <input id="meta-model-year" type="number" min="1900" max="2100" step="1" required placeholder="z.B. 2023" />
+            <label for="meta-model-year">Model Year <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-model-year" type="number" min="1900" max="2100" step="1" required placeholder="e.g. 2023" />
 
-            <label for="meta-kilometers-on-bike">Aktueller Kilometerstand <span class="required-marker" aria-hidden="true">*</span></label>
-            <input id="meta-kilometers-on-bike" type="number" min="0" step="any" required placeholder="z.B. 49500" />
+            <label for="meta-kilometers-on-bike">Current Mileage <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-kilometers-on-bike" type="number" min="0" step="any" required placeholder="e.g. 49500" />
 
-            <label for="meta-oil-type">Verwendetes Motoröl</label>
-            <input id="meta-oil-type" type="text" placeholder="z.B. Castrol Power 1 Racing 5W-40" />
+            <label for="meta-oil-type">Engine Oil Used</label>
+            <input id="meta-oil-type" type="text" placeholder="e.g. Castrol Power 1 Racing 5W-40" />
 
-            <label for="meta-kilometers-since-oilchange">Zurückgelegte Kilometer seit letztem Service/Ölwechsel</label>
-            <input id="meta-kilometers-since-oilchange" type="number" min="0" step="any" placeholder="z.B. 4300" />
+            <label for="meta-kilometers-since-oilchange">Distance Since Last Service/Oil Change</label>
+            <input id="meta-kilometers-since-oilchange" type="number" min="0" step="any" placeholder="e.g. 4300" />
 
-            <label for="meta-recording-device">Aufnahmegerät/Smartphone-Modell <span class="required-marker" aria-hidden="true">*</span></label>
-            <input id="meta-recording-device" type="text" required placeholder="z.B. iPhone 14 Pro" />
+            <label for="meta-recording-device">Recording Device/Smartphone Model <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-recording-device" type="text" required placeholder="e.g. iPhone 14 Pro" />
 
             <fieldset class="radio-field">
-              <legend>Ist der Auspuff original? <span class="required-marker" aria-hidden="true">*</span></legend>
+              <legend>Is the exhaust original? <span class="required-marker" aria-hidden="true">*</span></legend>
               <div class="radio-options-row">
-                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="ja" required /> Ja</label>
-                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="nein" required /> Nein</label>
+                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="yes" required /> Yes</label>
+                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="no" required /> No</label>
               </div>
               <div id="meta-exhaust-followup" class="followup-field" hidden>
-                <label for="meta-exhaust-system">Falls Nein, was für ein Auspuff ist montiert?</label>
-                <input id="meta-exhaust-system" type="text" />
+                <label for="meta-exhaust-system">If no, what exhaust is installed?</label>
+                <textarea id="meta-exhaust-system" rows="2"></textarea>
               </div>
             </fieldset>
 
             <fieldset class="radio-field">
-              <legend>Sind Defekte bekannt oder sonstige akustische Besonderheiten? <span class="required-marker" aria-hidden="true">*</span></legend>
+              <legend>Are any defects or unusual sounds known? <span class="required-marker" aria-hidden="true">*</span></legend>
               <div class="radio-options-row">
-                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="ja" required /> Ja</label>
-                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="nein" required /> Nein</label>
+                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="yes" required /> Yes</label>
+                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="no" required /> No</label>
               </div>
               <div id="meta-known-issues-followup" class="followup-field" hidden>
-                <label for="meta-known-issues">Falls ja, bitte die bekannten Defekte oder akustischen Besonderheiten beschreiben.</label>
+                <label for="meta-known-issues">If yes, please describe the known defects or unusual sounds.</label>
                 <textarea id="meta-known-issues" rows="2"></textarea>
               </div>
             </fieldset>
 
-            <label for="meta-contributor">Dein Name</label>
-            <input id="meta-contributor" type="text" placeholder="z.B. Max Mustermann" />
+            <label for="meta-contributor">Your Name</label>
+            <input id="meta-contributor" type="text" placeholder="e.g. John Doe" />
 
-            <label for="meta-notes">Zusätzliche Anmerkungen</label>
-            <textarea id="meta-notes" rows="2" placeholder="Alles Weitere, das erwähnenswert ist"></textarea>
+            <label for="meta-notes">Additional Notes</label>
+            <textarea id="meta-notes" rows="3" placeholder="Anything else worth mentioning"></textarea>
           </div>
-          <button type="button" id="meta-clear-button" class="secondary-button">Gespeicherte Angaben löschen</button>
+          <button type="button" id="meta-clear-button" class="secondary-button">Clear saved details</button>
         </details>
       </form>
 

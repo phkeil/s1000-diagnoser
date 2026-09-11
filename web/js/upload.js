@@ -36,7 +36,7 @@ const uploadButton = document.getElementById("upload-button");
 const uploadStatus = document.getElementById("upload-status");
 const metaClearButton = document.getElementById("meta-clear-button");
 
-const NO_FILE_TEXT = "Keine Datei ausgewählt";
+const NO_FILE_TEXT = "No file chosen";
 
 // [{key: metadata field name sent to the server, elementId}] - text/number/
 // textarea/select inputs whose .value maps straight through. The two
@@ -249,13 +249,13 @@ function getRadioValue(name) {
 // an abandoned choice can never resurface later, and never has to be
 // filtered out at submit time either.
 function updateFollowupVisibility() {
-  const exhaustFollowupVisible = getRadioValue("meta-exhaust-stock") === "nein";
+  const exhaustFollowupVisible = getRadioValue("meta-exhaust-stock") === "no";
   document.getElementById("meta-exhaust-followup").hidden = !exhaustFollowupVisible;
   if (!exhaustFollowupVisible) {
     clearFollowupField("meta-exhaust-system", "exhaust_custom");
   }
 
-  const knownIssuesFollowupVisible = getRadioValue("meta-known-issues-flag") === "ja";
+  const knownIssuesFollowupVisible = getRadioValue("meta-known-issues-flag") === "yes";
   document.getElementById("meta-known-issues-followup").hidden = !knownIssuesFollowupVisible;
   if (!knownIssuesFollowupVisible) {
     clearFollowupField("meta-known-issues", "known_issues");
@@ -280,9 +280,9 @@ function collectRecordingMetadata() {
   };
 
   metadata.exhaust_system =
-    getRadioValue("meta-exhaust-stock") === "ja" ? "stock" : document.getElementById("meta-exhaust-system").value.trim();
+    getRadioValue("meta-exhaust-stock") === "yes" ? "stock" : document.getElementById("meta-exhaust-system").value.trim();
   metadata.known_issues =
-    getRadioValue("meta-known-issues-flag") === "ja" ? document.getElementById("meta-known-issues").value.trim() : "";
+    getRadioValue("meta-known-issues-flag") === "yes" ? document.getElementById("meta-known-issues").value.trim() : "";
 
   return metadata;
 }

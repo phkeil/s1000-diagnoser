@@ -221,14 +221,14 @@ textarea {
 
 .radio-options-row {
   display: flex;
-  gap: 1.75rem;
+  gap: 4.0rem;
   margin-top: 0.4rem;
 }
 
 .recording-details-grid .radio-option {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.1rem;
   color: var(--text);
   font-size: 0.9rem;
   cursor: pointer;

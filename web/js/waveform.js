@@ -16,10 +16,18 @@ let wavesurfer = null;
 let regionsPlugin = null;
 let regionsBySegmentId = new Map();
 
-export function initWaveform(container) {
+// The one segment currently playing (or null) - only one plays at a time,
+// see playSegment() below.
+let currentPlayingSegmentId = null;
+let onPlayStateChange = null;
+
+export function initWaveform(container, { onPlayStateChange: callback } = {}) {
   if (wavesurfer) {
     wavesurfer.destroy();
   }
+  onPlayStateChange = callback || null;
+  currentPlayingSegmentId = null;
+
   regionsPlugin = RegionsPlugin.create();
   wavesurfer = WaveSurfer.create({
     container,
@@ -28,8 +36,33 @@ export function initWaveform(container) {
     height: 96,
     plugins: [regionsPlugin],
   });
+
+  // wavesurfer's own pause/finish events also fire for a region-limited
+  // play(start, end) reaching its end (via its internal stopAtPosition
+  // timer), not just a full-track stop - that's what lets us detect
+  // "playback actually stopped" without polling. The isPlaying() guard
+  // matters because the browser's native 'pause' event is asynchronous: if
+  // the user switches to a *different* segment quickly, a stale 'pause' from
+  // the previous stop() can arrive after the new segment has already
+  // started, and would otherwise wrongly clear the new segment's state.
+  wavesurfer.on("pause", () => {
+    if (!wavesurfer.isPlaying()) {
+      setPlayingSegment(null);
+    }
+  });
+  wavesurfer.on("finish", () => {
+    if (!wavesurfer.isPlaying()) {
+      setPlayingSegment(null);
+    }
+  });
+
   regionsBySegmentId = new Map();
   return wavesurfer;
+}
+
+function setPlayingSegment(segmentId) {
+  currentPlayingSegmentId = segmentId;
+  onPlayStateChange?.(segmentId);
 }
 
 export async function loadFileIntoWaveform(file) {
@@ -59,8 +92,23 @@ export function setRegionLabel(segmentId, label) {
   }
 }
 
-export function playSegment(startTime, endTime) {
-  wavesurfer?.play(startTime, endTime);
+// Toggles: clicking the segment that's already playing stops it; clicking a
+// different one stops nothing explicitly (play() reseeks/restarts on its
+// own) and just starts the new one, so only one is ever playing.
+export function playSegment(segmentId, startTime, endTime) {
+  if (!wavesurfer) {
+    return;
+  }
+  if (currentPlayingSegmentId === segmentId) {
+    wavesurfer.stop();
+    return;
+  }
+  setPlayingSegment(segmentId);
+  wavesurfer.play(startTime, endTime);
+}
+
+export function stopPlayback() {
+  wavesurfer?.stop();
 }
 
 export function playFromStart() {
@@ -68,5 +116,10 @@ export function playFromStart() {
     return;
   }
   wavesurfer.stop();
+  // setTime() (unlike stop() alone) explicitly clears any stopAtPosition
+  // left over from the last per-segment play(start, end) - without it, a
+  // "play from start" right after playing a segment can stop early at that
+  // segment's old end time instead of playing the full track.
+  wavesurfer.setTime(0);
   wavesurfer.play();
 }

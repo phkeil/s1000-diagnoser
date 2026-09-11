@@ -17,49 +17,86 @@
 
   <main>
     <section id="tab-label" class="tab-panel">
-      <div class="upload-panel">
-        <input id="file-input" type="file" accept=".wav,.m4a" />
-        <label for="domain-select">Domain</label>
-        <select id="domain-select">
-          <option value="">Auto-detect</option>
-          <option value="Garage">Garage</option>
-          <option value="YouTube">YouTube</option>
-        </select>
-        <button id="upload-button" type="button">Upload</button>
-        <span id="upload-status" class="status-text"></span>
-      </div>
-
-      <details class="recording-details">
-        <summary>Recording details (optional)</summary>
-        <div class="recording-details-grid">
-          <label for="meta-contributor">Contributor</label>
-          <input id="meta-contributor" type="text" placeholder="e.g. Philip" />
-
-          <label for="meta-recording-device">Recording device</label>
-          <input id="meta-recording-device" type="text" placeholder="e.g. iPhone 13" />
-
-          <label for="meta-exhaust-system">Exhaust system</label>
-          <input id="meta-exhaust-system" type="text" placeholder="Leave blank if original" />
-
-          <label for="meta-model-year">Model year</label>
-          <input id="meta-model-year" type="number" min="1900" max="2100" step="1" />
-
-          <label for="meta-kilometers-on-bike">Kilometers on bike</label>
-          <input id="meta-kilometers-on-bike" type="number" min="0" step="any" />
-
-          <label for="meta-oil-type">Oil type</label>
-          <input id="meta-oil-type" type="text" placeholder="e.g. 10W-40 full synthetic" />
-
-          <label for="meta-kilometers-since-oilchange">Km since last oil change</label>
-          <input id="meta-kilometers-since-oilchange" type="number" min="0" step="any" />
-
-          <label for="meta-known-issues">Known issues</label>
-          <input id="meta-known-issues" type="text" placeholder="e.g. faint rattle at idle since spring" />
-
-          <label for="meta-notes">Notes</label>
-          <input id="meta-notes" type="text" placeholder="Anything else worth recording" />
+      <form id="upload-form">
+        <div class="upload-panel">
+          <div class="file-field">
+            <input id="file-input" type="file" accept=".wav,.m4a" required class="file-input-native" />
+            <label for="file-input" class="file-input-button">Datei auswählen <span class="required-marker" aria-hidden="true">*</span></label>
+            <span id="file-input-filename" class="file-input-filename">Keine Datei ausgewählt</span>
+          </div>
+          <label for="domain-select">Domain</label>
+          <select id="domain-select">
+            <option value="">Auto-detect</option>
+            <option value="Garage">Garage</option>
+            <option value="YouTube">YouTube</option>
+          </select>
+          <button id="upload-button" type="submit">Aufnahme Hochladen</button>
+          <span id="upload-status" class="status-text" role="status"></span>
         </div>
-      </details>
+
+        <details class="recording-details" open>
+          <summary>Aufnahme- &amp; Motorraddaten</summary>
+          <p class="required-hint"><span class="required-marker" aria-hidden="true">*</span> Pflichtfeld</p>
+          <div class="recording-details-grid">
+            <label for="meta-bike-model">Motorrad-Modell <span class="required-marker" aria-hidden="true">*</span></label>
+            <select id="meta-bike-model" required>
+              <option value="" disabled selected>Bitte wählen…</option>
+              <option value="S1000R">S1000R</option>
+              <option value="S1000RR">S1000RR</option>
+              <option value="S1000XR">S1000XR</option>
+              <option value="M1000R">M1000R</option>
+              <option value="M1000RR">M1000RR</option>
+              <option value="M1000XR">M1000XR</option>
+            </select>
+
+            <label for="meta-model-year">Baujahr <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-model-year" type="number" min="1900" max="2100" step="1" required placeholder="z.B. 2023" />
+
+            <label for="meta-kilometers-on-bike">Aktueller Kilometerstand <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-kilometers-on-bike" type="number" min="0" step="any" required placeholder="z.B. 49500" />
+
+            <label for="meta-oil-type">Verwendetes Motoröl</label>
+            <input id="meta-oil-type" type="text" placeholder="z.B. Castrol Power 1 Racing 5W-40" />
+
+            <label for="meta-kilometers-since-oilchange">Zurückgelegte Kilometer seit letztem Service/Ölwechsel</label>
+            <input id="meta-kilometers-since-oilchange" type="number" min="0" step="any" placeholder="z.B. 4300" />
+
+            <label for="meta-recording-device">Aufnahmegerät/Smartphone-Modell <span class="required-marker" aria-hidden="true">*</span></label>
+            <input id="meta-recording-device" type="text" required placeholder="z.B. iPhone 14 Pro" />
+
+            <fieldset class="radio-field">
+              <legend>Ist der Auspuff original? <span class="required-marker" aria-hidden="true">*</span></legend>
+              <div class="radio-options-row">
+                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="ja" required /> Ja</label>
+                <label class="radio-option"><input type="radio" name="meta-exhaust-stock" value="nein" required /> Nein</label>
+              </div>
+              <div id="meta-exhaust-followup" class="followup-field" hidden>
+                <label for="meta-exhaust-system">Falls Nein, was für ein Auspuff ist montiert?</label>
+                <input id="meta-exhaust-system" type="text" />
+              </div>
+            </fieldset>
+
+            <fieldset class="radio-field">
+              <legend>Sind Defekte bekannt oder sonstige akustische Besonderheiten? <span class="required-marker" aria-hidden="true">*</span></legend>
+              <div class="radio-options-row">
+                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="ja" required /> Ja</label>
+                <label class="radio-option"><input type="radio" name="meta-known-issues-flag" value="nein" required /> Nein</label>
+              </div>
+              <div id="meta-known-issues-followup" class="followup-field" hidden>
+                <label for="meta-known-issues">Falls ja, bitte die bekannten Defekte oder akustischen Besonderheiten beschreiben.</label>
+                <textarea id="meta-known-issues" rows="2"></textarea>
+              </div>
+            </fieldset>
+
+            <label for="meta-contributor">Dein Name</label>
+            <input id="meta-contributor" type="text" placeholder="z.B. Max Mustermann" />
+
+            <label for="meta-notes">Zusätzliche Anmerkungen</label>
+            <textarea id="meta-notes" rows="2" placeholder="Alles Weitere, das erwähnenswert ist"></textarea>
+          </div>
+          <button type="button" id="meta-clear-button" class="secondary-button">Gespeicherte Angaben löschen</button>
+        </details>
+      </form>
 
       <div id="waveform-panel" class="waveform-panel" hidden>
         <div id="waveform"></div>
@@ -69,11 +106,56 @@
       </div>
 
       <div id="segments-panel" class="segments-panel" hidden>
-        <div class="segments-toolbar">
-          <span id="segments-summary" class="status-text"></span>
-          <button id="confirm-button" type="button" disabled>Confirm labels</button>
-          <span id="confirm-status" class="status-text"></span>
+        <div class="segments-sticky-stack">
+          <div id="bulk-actions-bar" class="bulk-actions-bar">
+            <div class="bulk-group">
+              <span class="bulk-label">Label all:</span>
+              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="healthy">Healthy</button>
+              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="defective">Defective</button>
+              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="unlabeled">Skip</button>
+            </div>
+            <div class="bulk-group">
+              <span class="bulk-label">Label unlabeled:</span>
+              <button type="button" class="bulk-button" data-bulk-scope="unlabeled" data-label="healthy">Healthy</button>
+              <button type="button" class="bulk-button" data-bulk-scope="unlabeled" data-label="defective">Defective</button>
+            </div>
+            <div class="bulk-group filter-group" role="group" aria-label="Filter segments">
+              <span class="bulk-label">Filter:</span>
+              <button type="button" class="filter-button active" data-filter="all">All</button>
+              <button type="button" class="filter-button" data-filter="unlabeled">Unlabeled</button>
+              <button type="button" class="filter-button" data-filter="healthy">Healthy</button>
+              <button type="button" class="filter-button" data-filter="defective">Defective</button>
+            </div>
+            <div class="bulk-group progress-group">
+              <span id="bulk-progress" class="status-text"></span>
+            </div>
+            <div class="bulk-group confirm-group">
+              <button id="confirm-button" type="button" disabled>Confirm labels</button>
+              <span id="confirm-status" class="status-text" role="status"></span>
+            </div>
+          </div>
+
+          <div id="session-header" class="session-header">
+            <span id="session-filename" class="session-item"></span>
+            <span id="session-domain" class="session-item"></span>
+            <span id="session-bike" class="session-item"></span>
+            <span id="session-progress" class="session-item session-progress"></span>
+          </div>
+
+          <details class="shortcuts-legend">
+            <summary>⌨ Shortcuts</summary>
+            <ul>
+              <li><kbd>H</kbd> label focused/hovered segment Healthy</li>
+              <li><kbd>D</kbd> label focused/hovered segment Defective</li>
+              <li><kbd>S</kbd> skip focused/hovered segment</li>
+              <li><kbd>Space</kbd> play/stop focused segment</li>
+              <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> move between segments</li>
+              <li><kbd>Shift</kbd>+<kbd>H</kbd> label all unlabeled Healthy</li>
+              <li><kbd>Shift</kbd>+<kbd>D</kbd> label all unlabeled Defective</li>
+            </ul>
+          </details>
         </div>
+
         <div id="segments-grid" class="segments-grid"></div>
       </div>
     </section>
@@ -96,6 +178,19 @@
       </div>
     </section>
   </main>
+
+  <div id="confirm-modal" class="modal-overlay" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <h2 id="confirm-modal-title">Ready to save to manifest</h2>
+      <dl class="modal-summary" id="confirm-modal-breakdown"></dl>
+      <div class="modal-metadata" id="confirm-modal-metadata"></div>
+      <span id="confirm-modal-error" class="modal-error" role="alert" hidden></span>
+      <div class="modal-actions">
+        <button type="button" id="confirm-modal-cancel" class="secondary-button">Cancel</button>
+        <button type="button" id="confirm-modal-save">Save to manifest</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/js/main.js"></script>
 </body>

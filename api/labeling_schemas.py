@@ -25,6 +25,7 @@ class SourceMetadata(BaseModel):
     original_codec is captured automatically from the upload's file extension,
     never supplied by the client."""
 
+    bike_model: Optional[str] = None
     contributor: Optional[str] = None
     recording_device: Optional[str] = None
     original_codec: Optional[str] = None

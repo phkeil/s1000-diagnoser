@@ -97,7 +97,8 @@ button:disabled {
 
 select,
 input[type="text"],
-input[type="number"] {
+input[type="number"],
+textarea {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -108,6 +109,53 @@ input[type="number"] {
 .status-text {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* The native <input type="file">'s button/status text ("Choose File", "No
+   file chosen") is rendered by the browser in its own UI language, not the
+   page's - it can't be relabeled in German via markup. Swap it for a
+   custom-styled trigger: the native input stays fully functional (focusable,
+   keyboard-operable, satisfies `required`) via the classic visually-hidden
+   pattern (clipped to 1px, not display:none - display:none would drop it out
+   of constraint validation too), just visually replaced by the <label> and a
+   JS-driven filename span (see web/js/upload.js). */
+.file-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.file-input-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.file-input-button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.file-input-native:focus-visible + .file-input-button {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.file-input-filename {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .recording-details {
@@ -124,6 +172,16 @@ input[type="number"] {
   color: var(--muted);
 }
 
+.required-hint {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.required-marker {
+  color: var(--defective);
+}
+
 .recording-details-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -137,8 +195,74 @@ input[type="number"] {
   font-size: 0.85rem;
 }
 
-.recording-details-grid input {
+.recording-details-grid input,
+.recording-details-grid textarea {
   width: 100%;
+  font-family: inherit;
+}
+
+.recording-details-grid select {
+  width: 100%;
+}
+
+.radio-field {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem 0.8rem;
+  margin: 0;
+}
+
+.radio-field legend {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0 0.3rem;
+}
+
+.radio-options-row {
+  display: flex;
+  gap: 1.75rem;
+  margin-top: 0.4rem;
+}
+
+.recording-details-grid .radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.recording-details-grid .radio-option input[type="radio"] {
+  margin: 0;
+}
+
+.followup-field {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* Same class of bug as .modal-overlay/.modal-error further down: an
+   unconditional display:flex above always wins over the browser's built-in
+   [hidden]{display:none}, so without this the follow-up field stays visible
+   (and editable) no matter which radio is selected. */
+.followup-field[hidden] {
+  display: none;
+}
+
+.followup-field label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.secondary-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-top: 0.75rem;
 }
 
 .waveform-panel {
@@ -153,11 +277,108 @@ input[type="number"] {
   margin-bottom: 0.75rem;
 }
 
-.segments-toolbar {
+.segments-sticky-stack {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.bulk-actions-bar {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.75rem;
+}
+
+.bulk-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.confirm-group,
+.progress-group {
+  margin-left: auto;
+}
+
+.bulk-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-right: 0.2rem;
+}
+
+.bulk-button,
+.filter-button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.filter-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0d12;
+  font-weight: 600;
+}
+
+.session-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  padding: 0.5rem 1rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.session-item:empty {
+  display: none;
+}
+
+.session-progress {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.shortcuts-legend {
+  margin-top: 0.5rem;
+  padding: 0 1rem;
+}
+
+.shortcuts-legend summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.shortcuts-legend ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.shortcuts-legend kbd {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text);
 }
 
 .segments-grid {
@@ -176,12 +397,70 @@ input[type="number"] {
   gap: 0.5rem;
 }
 
-.segment-card img {
+.segment-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.segment-card.is-playing {
+  border-color: var(--accent);
+  background: rgba(91, 141, 239, 0.14);
+}
+
+.spectrogram-wrap {
+  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  object-fit: cover;
   border-radius: 4px;
+  overflow: hidden;
   background: #000;
+}
+
+.spectrogram-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.spectrogram-wrap.is-loaded img {
+  opacity: 1;
+}
+
+.spectrogram-wrap:not(.is-loaded):not(.is-error)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--panel) 25%, var(--border) 50%, var(--panel) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.spectrogram-retry {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--panel);
+  border: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  border-radius: 0;
+}
+
+.spectrogram-wrap.is-error .spectrogram-retry {
+  display: block;
 }
 
 .segment-card .segment-time {
@@ -266,4 +545,76 @@ input[type="number"] {
 .train-metrics dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 1rem;
+}
+
+/* Author `display: flex` above always wins over the browser's built-in
+   `[hidden]{display:none}` (author rules beat UA rules regardless of
+   specificity) - without this, toggling the hidden attribute has no visual
+   effect, same as .tab-panel[hidden] elsewhere in this file. */
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 420px;
+}
+
+.modal-panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+}
+
+.modal-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.modal-summary dt {
+  color: var(--muted);
+}
+
+.modal-summary dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-metadata {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.modal-error {
+  display: block;
+  color: var(--defective);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.modal-error[hidden] {
+  display: none;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
 }

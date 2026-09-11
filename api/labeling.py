@@ -168,6 +168,7 @@ def _resolve_segment(segment_id: str) -> Tuple[dict, int]:
 async def create_upload(
     file: UploadFile = File(...),
     domain: DomainLiteral = Form(None),
+    bike_model: Optional[str] = Form(None),
     contributor: Optional[str] = Form(None),
     recording_device: Optional[str] = Form(None),
     exhaust_system: Optional[str] = Form(None),
@@ -202,6 +203,7 @@ async def create_upload(
     # original_codec always comes from the upload's actual suffix, never
     # from the client - the rest is exactly what the uploader typed in.
     source_metadata = manifest.SourceFileMetadata(
+        bike_model=bike_model,
         contributor=contributor,
         recording_device=recording_device,
         original_codec=suffix.lstrip("."),

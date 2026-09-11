@@ -21,11 +21,14 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # v2 added source_files' descriptive metadata columns (contributor,
-# recording_device, ... - see SourceFileMetadata below). No migration system
-# exists yet (see module docstring's "no ORM" note) - safe to change the
-# CREATE TABLE directly rather than write an ALTER TABLE migration, since no
-# schema-v1 database has ever been populated outside of tests.
-SCHEMA_VERSION = 2
+# recording_device, ... - see SourceFileMetadata below). v3 added bike_model
+# (the community data-collection form's "Motorrad-Modell" field). v1 -> v2
+# never needed a real migration (no v1 database was ever populated outside
+# of tests), but a real v2 manifest.db now exists with labeled segments in
+# it - see _migrate_v2_to_v3 below - so from v3 onward a new nullable column
+# gets a proper ALTER TABLE instead of assuming CREATE TABLE IF NOT EXISTS
+# alone is enough.
+SCHEMA_VERSION = 3
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS source_files (
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS source_files (
     domain TEXT NOT NULL CHECK(domain IN ('Garage','YouTube')),
     sample_rate INTEGER,
     duration_seconds REAL,
+    bike_model TEXT,
     contributor TEXT,
     recording_device TEXT,
     original_codec TEXT,
@@ -104,6 +108,7 @@ class SourceFileMetadata:
     value names the aftermarket system fitted instead.
     """
 
+    bike_model: Optional[str] = None
     contributor: Optional[str] = None
     recording_device: Optional[str] = None
     original_codec: Optional[str] = None
@@ -135,10 +140,25 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Adds source_files.bike_model to an existing v2 database. A plain
+    ALTER TABLE ADD COLUMN is enough - the column is nullable, so every
+    existing row just gets NULL, no backfill needed. Guarded by a
+    table_info check so re-running it (e.g. two confirms racing on the same
+    fresh-ish db) is a no-op rather than an error."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(source_files)")}
+    if "bike_model" not in columns:
+        conn.execute("ALTER TABLE source_files ADD COLUMN bike_model TEXT")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Idempotent - safe to call on every connection open."""
     conn.executescript(_SCHEMA_SQL)
-    if conn.execute("PRAGMA user_version").fetchone()[0] == 0:
+    current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current_version == 0:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    elif current_version == 2:
+        _migrate_v2_to_v3(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -166,10 +186,10 @@ def get_or_create_source_file(
         """
         INSERT INTO source_files (
             file_path, source_url, domain, sample_rate, duration_seconds,
-            contributor, recording_device, original_codec, exhaust_system,
+            bike_model, contributor, recording_device, original_codec, exhaust_system,
             model_year, kilometers_on_bike, oil_type, kilometers_since_last_oilchange,
             known_issues, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             file_path,
@@ -177,6 +197,7 @@ def get_or_create_source_file(
             domain,
             sample_rate,
             duration_seconds,
+            metadata.bike_model,
             metadata.contributor,
             metadata.recording_device,
             metadata.original_codec,

@@ -1,30 +1,46 @@
-// Upload form + segment grid: owns every piece of per-session state -
-// currentSegments (the last UploadResponse), labelsBySegmentId (segmentId ->
-// "healthy" | "defective"; an unlabeled segment is simply absent),
-// skippedSegmentIds (segmentId explicitly set to "Skip" - tracked apart from
-// "never touched" purely so the progress breakdown can tell the two apart),
-// plus the active filter and keyboard focus/hover tracking. segments.js and
-// waveform.js stay dumb renderers with no state of their own.
+// Upload form + region-based labeling: owns every piece of per-session state -
+// regionsById (regionId -> {region: the wavesurfer Region instance, label:
+// "healthy" | "defective" | "skip"}), overlaysByRegionId (regionId -> the
+// spectrogram panel's mirrored overlay <div>), lastValidPositionByRegionId
+// (the overlap guard's revert target), plus selection/playback/scroll-sync
+// tracking. waveform.js and segments.js stay dumb renderers with no state of
+// their own - a region's start/end lives on the wavesurfer Region object
+// itself (the library's own source of truth), its label lives here.
+//
+// Mental model: the user draws free-form regions (no minimum duration -
+// the backend already drops any region too short to yield a single
+// chunk_audio window) and labels *intent* ("this stretch is healthy idle") -
+// the fixed 1.0s/0.25s-step grid the model actually trains on is applied
+// server-side at confirm time (see api/labeling.py's confirm_upload), never
+// at labeling time.
 
-import { uploadFile, spectrogramUrl, confirmUpload } from "./api.js";
+import { uploadFile, fullSpectrogramUrl, confirmUpload } from "./api.js";
 import {
   initWaveform,
   loadFileIntoWaveform,
-  drawSegmentRegions,
+  playRegion as playWaveformRegion,
+  removeRegion as removeWaveformRegion,
   setRegionLabel,
-  playSegment,
-  playFromStart,
+  setRegionSelected,
+  setRegionPosition as setWaveformRegionPosition,
+  scrollToRegion,
+  zoomTo,
+  getDuration,
+  setScroll as setWaveformScroll,
+  play as playWaveform,
+  pause as pauseWaveform,
+  seekToStart as seekWaveformToStart,
+  showSnapGuide,
+  hideSnapGuide,
+  LABEL_COLORS,
 } from "./waveform.js";
-import {
-  renderSegments,
-  setCardLabel,
-  setCardPlaying,
-  setCardVisible,
-  getCardElement,
-  getVisibleSegmentIdsInOrder,
-} from "./segments.js";
+import { renderRegionRows } from "./segments.js";
 
 const STORAGE_PREFIX = "s1000_meta_";
+const OVERLAP_TOAST_MESSAGE = "Regions can't overlap — reverted to previous position";
+const OVERLAP_TOAST_DURATION_MS = 2500;
+const SCROLL_SYNC_FALLBACK_MS = 100;
+const SNAP_THRESHOLD_S = 0.1;
 
 const tabLabelPanel = document.getElementById("tab-label");
 
@@ -60,23 +76,30 @@ const RADIO_META_GROUPS = [
   { key: "known_issues_flag", name: "meta-known-issues-flag" },
 ];
 
-const waveformPanel = document.getElementById("waveform-panel");
+const audioWorkspace = document.getElementById("audio-workspace");
 const waveformContainer = document.getElementById("waveform");
-const playAllButton = document.getElementById("play-all-button");
+const zoomSlider = document.getElementById("zoom-slider");
 
-const segmentsPanel = document.getElementById("segments-panel");
-const segmentsGrid = document.getElementById("segments-grid");
+const transportRestartButton = document.getElementById("transport-restart-button");
+const transportPlayButton = document.getElementById("transport-play-button");
+const transportTime = document.getElementById("transport-time");
 
-const bulkButtons = document.querySelectorAll(".bulk-button");
-const filterButtons = document.querySelectorAll(".filter-button");
-const bulkProgress = document.getElementById("bulk-progress");
+const overlapToast = document.getElementById("overlap-toast");
+
+const spectrogramPanel = document.getElementById("spectrogram-panel"); // the scroll viewport itself
+const spectrogramInner = document.getElementById("spectrogram-inner");
+const spectrogramImage = document.getElementById("spectrogram-image");
+const spectrogramRetryButton = document.getElementById("spectrogram-retry");
+
+const regionsPanel = document.getElementById("regions-panel");
+const regionsTbody = document.getElementById("regions-tbody");
+const regionsEmptyHint = document.getElementById("regions-empty-hint");
 const confirmButton = document.getElementById("confirm-button");
 const confirmStatus = document.getElementById("confirm-status");
 
 const sessionFilename = document.getElementById("session-filename");
 const sessionDomain = document.getElementById("session-domain");
 const sessionBike = document.getElementById("session-bike");
-const sessionProgress = document.getElementById("session-progress");
 
 const confirmModal = document.getElementById("confirm-modal");
 const confirmModalBreakdown = document.getElementById("confirm-modal-breakdown");
@@ -86,15 +109,26 @@ const confirmModalCancel = document.getElementById("confirm-modal-cancel");
 const confirmModalSave = document.getElementById("confirm-modal-save");
 
 let currentUploadId = null;
-let currentSegments = []; // raw segments from the last UploadResponse
-let currentUploadMeta = null; // {filename, domain, sourceMetadata}
-let labelsBySegmentId = new Map();
-let skippedSegmentIds = new Set();
-let currentFilter = "all";
+let currentUploadMeta = null; // {filename, domain, sourceMetadata, segmentDuration, stepDuration}
+let regionsById = new Map(); // regionId -> {region, label}
+let overlaysByRegionId = new Map(); // regionId -> spectrogram overlay <div>
+let lastValidPositionByRegionId = new Map(); // regionId -> {start, end}, the overlap guard's revert target
+let warningRegionIds = new Set(); // regions a live drag elsewhere would currently overlap
+let selectedRegionId = null;
+let playingRegionId = null;
 let isConfirmModalOpen = false;
 
-let hoveredSegmentId = null;
-let focusedSegmentId = null;
+let totalDurationSeconds = 0;
+let isPlaybackActive = false;
+let overlapToastTimeoutId = null;
+
+// Guards the waveform<->spectrogram scroll mirroring against feedback loops:
+// set before a programmatic scroll on either side, consumed by whichever
+// handler sees it first (the echo, if the browser fires one) - a short
+// fallback timeout clears it regardless, in case a given scroll happens to
+// land on a position the browser doesn't consider a change (no echo fires).
+let _scrollSyncing = false;
+let scrollSyncTimeoutId = null;
 
 export function initUploadTab() {
   restoreMetadataFromStorage();
@@ -106,21 +140,31 @@ export function initUploadTab() {
     fileInputFilename.textContent = fileInput.files[0]?.name || NO_FILE_TEXT;
   });
   metaClearButton.addEventListener("click", handleClearSavedMetadata);
-  playAllButton.addEventListener("click", playFromStart);
 
-  for (const button of bulkButtons) {
-    button.addEventListener("click", () => {
-      const label = button.dataset.label;
-      if (button.dataset.bulkScope === "all") {
-        bulkLabelAll(label);
-      } else {
-        bulkLabelUnlabeledOnly(label);
-      }
-    });
-  }
-  for (const button of filterButtons) {
-    button.addEventListener("click", () => applyFilter(button.dataset.filter));
-  }
+  zoomSlider.addEventListener("input", () => zoomTo(Number(zoomSlider.value)));
+
+  transportRestartButton.addEventListener("click", () => seekWaveformToStart());
+  transportPlayButton.addEventListener("click", () => {
+    if (isPlaybackActive) {
+      pauseWaveform();
+    } else {
+      playWaveform();
+    }
+  });
+
+  spectrogramImage.addEventListener("load", () => {
+    spectrogramPanel.classList.add("is-loaded");
+    spectrogramImage.classList.add("is-loaded");
+  });
+  spectrogramImage.addEventListener("error", () => {
+    spectrogramPanel.classList.add("is-error");
+  });
+  spectrogramRetryButton.addEventListener("click", () => {
+    if (currentUploadId) {
+      loadFullSpectrogram(currentUploadId);
+    }
+  });
+  spectrogramPanel.addEventListener("scroll", handleSpectrogramScroll);
 
   confirmButton.addEventListener("click", openConfirmModal);
   confirmModalCancel.addEventListener("click", closeConfirmModal);
@@ -128,27 +172,6 @@ export function initUploadTab() {
   confirmModal.addEventListener("click", (event) => {
     if (event.target === confirmModal) {
       closeConfirmModal();
-    }
-  });
-
-  segmentsGrid.addEventListener("mouseover", (event) => {
-    const card = event.target.closest(".segment-card");
-    if (card) {
-      hoveredSegmentId = card.dataset.segmentId;
-    }
-  });
-  segmentsGrid.addEventListener("mouseleave", () => {
-    hoveredSegmentId = null;
-  });
-  segmentsGrid.addEventListener("focusin", (event) => {
-    const card = event.target.closest(".segment-card");
-    if (card) {
-      focusedSegmentId = card.dataset.segmentId;
-    }
-  });
-  segmentsGrid.addEventListener("focusout", (event) => {
-    if (!segmentsGrid.contains(event.relatedTarget)) {
-      focusedSegmentId = null;
     }
   });
 
@@ -304,33 +327,59 @@ async function handleUpload(event) {
   uploadStatus.textContent = "Uploading…";
   try {
     const response = await uploadFile(file, domainSelect.value || undefined, collectRecordingMetadata());
+
     currentUploadId = response.upload_id;
-    currentSegments = response.segments;
-    currentUploadMeta = { filename: response.filename, domain: response.domain, sourceMetadata: response.source_metadata };
-    labelsBySegmentId = new Map();
-    skippedSegmentIds = new Set();
+    currentUploadMeta = {
+      filename: response.filename,
+      domain: response.domain,
+      sourceMetadata: response.source_metadata,
+      segmentDuration: response.segment_duration_seconds,
+      stepDuration: response.step_duration_seconds,
+    };
+    regionsById = new Map();
+    overlaysByRegionId = new Map();
+    lastValidPositionByRegionId = new Map();
+    warningRegionIds = new Set();
+    selectedRegionId = null;
+    playingRegionId = null;
+    isPlaybackActive = false;
+    totalDurationSeconds = 0;
+    spectrogramInner.querySelectorAll(".region-overlay").forEach((element) => element.remove());
+    hideOverlapToast();
 
-    uploadStatus.textContent =
-      `Uploaded "${response.filename}" (${response.domain}) - ${response.segments.length} segments.`;
+    uploadStatus.textContent = `Uploaded "${response.filename}" (${response.domain}).`;
 
-    initWaveform(waveformContainer, { onPlayStateChange: setCardPlaying });
-    await loadFileIntoWaveform(file);
-    waveformPanel.hidden = false;
+    initWaveform(waveformContainer, {
+      onRegionCreated: handleRegionCreated,
+      onRegionChanged: handleRegionChanged,
+      onRegionSettled: handleRegionSettled,
+      onRegionRemoved: handleRegionRemoved,
+      onRegionClicked: handleRegionClicked,
+      onRegionDoubleClicked: handleRegionDoubleClicked,
+      onBackgroundClicked: handleBackgroundClicked,
+      onPlayStateChange: handlePlayStateChange,
+      onPlaybackStateChange: handlePlaybackStateChange,
+      onTimeUpdate: handleTimeUpdate,
+      onScroll: handleWaveformScroll,
+      onContentWidthChange: handleContentWidthChange,
+    });
+    zoomSlider.value = "0"; // 0 = fit the full file to the panel width
+    updateTransportPlayButton(false);
+    updateTransportTime(0);
 
-    drawSegmentRegions(
-      currentSegments.map((segment) => ({
-        segmentId: segment.segment_id,
-        startTime: segment.start_time,
-        endTime: segment.end_time,
-        label: "unlabeled",
-      }))
-    );
+    // Unhide before awaiting decode below: the content-width sync that
+    // loadFileIntoWaveform triggers reads the waveform wrapper's clientWidth,
+    // which is 0 for as long as an ancestor panel is still [hidden].
+    audioWorkspace.hidden = false;
+    regionsPanel.hidden = false;
 
-    renderGrid();
-    applyFilter("all");
+    loadFullSpectrogram(currentUploadId);
     updateSessionHeader();
-    updateProgress();
-    segmentsPanel.hidden = false;
+    refreshRegionsUI();
+
+    await loadFileIntoWaveform(file);
+    totalDurationSeconds = getDuration();
+    updateTransportTime(0);
   } catch (error) {
     uploadStatus.textContent = `Upload failed: ${error.message}`;
   } finally {
@@ -338,19 +387,10 @@ async function handleUpload(event) {
   }
 }
 
-function renderGrid() {
-  const viewModels = currentSegments.map((segment) => ({
-    segmentId: segment.segment_id,
-    spectrogramUrl: spectrogramUrl(segment.segment_id),
-    currentLabel: "unlabeled",
-    startTime: segment.start_time,
-    endTime: segment.end_time,
-  }));
-
-  renderSegments(segmentsGrid, viewModels, {
-    onLabelChange: handleLabelChange,
-    onPlay: (segmentId, startTime, endTime) => playSegment(segmentId, startTime, endTime),
-  });
+function loadFullSpectrogram(uploadId) {
+  spectrogramPanel.classList.remove("is-loaded", "is-error");
+  spectrogramImage.classList.remove("is-loaded");
+  spectrogramImage.src = fullSpectrogramUrl(uploadId);
 }
 
 function updateSessionHeader() {
@@ -361,113 +401,449 @@ function updateSessionHeader() {
 }
 
 // ---------------------------------------------------------------------------
-// Labeling (single-card, bulk, and keyboard shortcuts all funnel through
-// setLabel so the card visuals, waveform region, and label state can never
-// drift apart)
+// Global transport (plays/pauses the shared cursor position - separate from
+// a region list row's own play button, which only plays that region's range)
 // ---------------------------------------------------------------------------
 
-function setLabel(segmentId, label) {
-  if (label === "unlabeled") {
-    labelsBySegmentId.delete(segmentId);
-    skippedSegmentIds.add(segmentId);
+function handlePlaybackStateChange(isPlaying) {
+  isPlaybackActive = isPlaying;
+  updateTransportPlayButton(isPlaying);
+}
+
+function updateTransportPlayButton(isPlaying) {
+  transportPlayButton.textContent = isPlaying ? "■" : "▶";
+  transportPlayButton.setAttribute("aria-label", isPlaying ? "Stop" : "Play");
+}
+
+function handleTimeUpdate(currentTime) {
+  updateTransportTime(currentTime);
+}
+
+function updateTransportTime(currentTime) {
+  transportTime.textContent = `${formatTime(currentTime)} / ${formatTime(totalDurationSeconds)}`;
+}
+
+function formatTime(seconds) {
+  const total = Math.max(0, seconds || 0);
+  const minutes = Math.floor(total / 60);
+  const secs = total - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${secs.toFixed(1).padStart(4, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Waveform <-> spectrogram bidirectional scroll sync
+// ---------------------------------------------------------------------------
+
+function beginScrollSync() {
+  _scrollSyncing = true;
+  clearTimeout(scrollSyncTimeoutId);
+  scrollSyncTimeoutId = setTimeout(() => {
+    _scrollSyncing = false;
+  }, SCROLL_SYNC_FALLBACK_MS);
+}
+
+function handleWaveformScroll(scrollLeftPx) {
+  if (_scrollSyncing) {
+    _scrollSyncing = false;
+    clearTimeout(scrollSyncTimeoutId);
+    return;
+  }
+  beginScrollSync();
+  spectrogramPanel.scrollLeft = scrollLeftPx;
+}
+
+function handleSpectrogramScroll() {
+  if (_scrollSyncing) {
+    _scrollSyncing = false;
+    clearTimeout(scrollSyncTimeoutId);
+    return;
+  }
+  beginScrollSync();
+  setWaveformScroll(spectrogramPanel.scrollLeft);
+}
+
+// Keeps the spectrogram image (and, via percentage-based left/width, every
+// region overlay drawn on it) the same pixel width as the waveform's current
+// zoomed content width, so a shared scrollLeft always points at the same
+// moment in time in both panels.
+function handleContentWidthChange(widthPx) {
+  if (widthPx > 0) {
+    spectrogramInner.style.width = `${widthPx}px`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Snap to adjacent region edges
+// ---------------------------------------------------------------------------
+
+// Every other region's start/end, plus the file boundaries - a settled (or
+// in-progress) region's own start/end snaps to the nearest of these once
+// within SNAP_THRESHOLD_S, letting regions sit back-to-back with no gap.
+function collectSnapCandidates(excludeRegionId) {
+  const candidates = [0, totalDurationSeconds];
+  for (const [id, entry] of regionsById) {
+    if (id === excludeRegionId) {
+      continue;
+    }
+    candidates.push(entry.region.start, entry.region.end);
+  }
+  return candidates;
+}
+
+function findNearestSnapCandidate(time, candidates) {
+  let nearest = null;
+  let nearestDistance = SNAP_THRESHOLD_S;
+  for (const candidate of candidates) {
+    const distance = Math.abs(candidate - time);
+    if (distance <= nearestDistance) {
+      nearest = candidate;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+// Runs before the overlap check (so a snapped edge is what overlap gets
+// judged against) - mutates the region in place via the wavesurfer API when
+// either edge lands within threshold of a candidate.
+function snapRegionToNeighbors(region) {
+  const candidates = collectSnapCandidates(region.id);
+  const snappedStart = findNearestSnapCandidate(region.start, candidates);
+  const snappedEnd = findNearestSnapCandidate(region.end, candidates);
+  if (snappedStart === null && snappedEnd === null) {
+    return;
+  }
+  setWaveformRegionPosition(region, {
+    start: snappedStart !== null ? snappedStart : region.start,
+    end: snappedEnd !== null ? snappedEnd : region.end,
+  });
+}
+
+// Live drag/resize feedback: a guide line at whichever edge (start,
+// preferred, else end) is currently within snapping range of a candidate.
+function updateSnapGuide(region) {
+  const candidates = collectSnapCandidates(region.id);
+  const nearStart = findNearestSnapCandidate(region.start, candidates);
+  const nearEnd = nearStart === null ? findNearestSnapCandidate(region.end, candidates) : null;
+  const guideTime = nearStart !== null ? nearStart : nearEnd;
+  if (guideTime !== null) {
+    showSnapGuide(guideTime);
   } else {
-    labelsBySegmentId.set(segmentId, label);
-    skippedSegmentIds.delete(segmentId);
+    hideSnapGuide();
   }
-  setCardLabel(segmentId, label);
-  setRegionLabel(segmentId, label);
 }
 
-function afterLabelsChanged() {
-  updateProgress();
-  applyFilter(currentFilter);
-}
+// ---------------------------------------------------------------------------
+// Overlap protection
+// ---------------------------------------------------------------------------
 
-function handleLabelChange(segmentId, label) {
-  setLabel(segmentId, label);
-  afterLabelsChanged();
-}
-
-function bulkLabelAll(label) {
-  for (const segment of currentSegments) {
-    setLabel(segment.segment_id, label);
-  }
-  afterLabelsChanged();
-}
-
-function bulkLabelUnlabeledOnly(label) {
-  for (const segment of currentSegments) {
-    if (!labelsBySegmentId.has(segment.segment_id)) {
-      setLabel(segment.segment_id, label);
+function findOverlappingRegionIds(excludeRegionId, start, end) {
+  const overlapping = [];
+  for (const [id, entry] of regionsById) {
+    if (id === excludeRegionId) {
+      continue;
+    }
+    const other = entry.region;
+    if (start < other.end && end > other.start) {
+      overlapping.push(id);
     }
   }
-  afterLabelsChanged();
+  return overlapping;
 }
 
-function applyFilter(filterValue) {
-  currentFilter = filterValue;
-  for (const button of filterButtons) {
-    button.classList.toggle("active", button.dataset.filter === filterValue);
+function showOverlapToast() {
+  overlapToast.textContent = OVERLAP_TOAST_MESSAGE;
+  overlapToast.classList.add("is-visible");
+  clearTimeout(overlapToastTimeoutId);
+  overlapToastTimeoutId = setTimeout(() => {
+    overlapToast.classList.remove("is-visible");
+  }, OVERLAP_TOAST_DURATION_MS);
+}
+
+function hideOverlapToast() {
+  clearTimeout(overlapToastTimeoutId);
+  overlapToast.classList.remove("is-visible");
+}
+
+// ---------------------------------------------------------------------------
+// Region lifecycle (create / change / settle / remove / click / double-click)
+// ---------------------------------------------------------------------------
+
+function handleRegionCreated(region) {
+  // A brand new region has no "previous position" to fall back to - if it
+  // overlaps an existing one, it simply can't be created.
+  const overlapping = findOverlappingRegionIds(region.id, region.start, region.end);
+  if (overlapping.length > 0) {
+    removeWaveformRegion(region);
+    showOverlapToast();
+    return;
   }
-  for (const segment of currentSegments) {
-    const label = labelsBySegmentId.get(segment.segment_id) || "unlabeled";
-    setCardVisible(segment.segment_id, filterValue === "all" || label === filterValue);
+  lastValidPositionByRegionId.set(region.id, { start: region.start, end: region.end });
+  regionsById.set(region.id, { region, label: "skip" });
+  addSpectrogramOverlay(region, "skip");
+  selectRegion(region.id);
+  refreshRegionsUI();
+}
+
+// Live drag/resize tick (an existing region only - the plugin doesn't emit
+// this during a brand-new region's own creation-drag): resync the overlay +
+// table live, and flag any OTHER row the in-progress drag currently overlaps.
+// The warning is cleared unconditionally once the drag settles, regardless
+// of whether it was ultimately accepted or reverted - see handleRegionSettled.
+function handleRegionChanged(region) {
+  updateSpectrogramOverlayGeometry(region.id);
+  warningRegionIds = new Set(findOverlappingRegionIds(region.id, region.start, region.end));
+  renderRegionsTable();
+  updateSnapGuide(region);
+}
+
+// Drag/resize settled: snaps to a nearby edge first (so overlap is judged
+// against the snapped position), then the authoritative overlap check.
+// Reverts to the last known non-overlapping position on conflict, otherwise
+// commits the new position as the next revert target.
+function handleRegionSettled(region) {
+  warningRegionIds = new Set();
+  hideSnapGuide();
+  snapRegionToNeighbors(region);
+  const overlapping = findOverlappingRegionIds(region.id, region.start, region.end);
+  if (overlapping.length > 0) {
+    const previous = lastValidPositionByRegionId.get(region.id);
+    if (previous) {
+      setWaveformRegionPosition(region, previous);
+    }
+    showOverlapToast();
+  } else {
+    lastValidPositionByRegionId.set(region.id, { start: region.start, end: region.end });
+  }
+  updateSpectrogramOverlayGeometry(region.id);
+  renderRegionsTable();
+}
+
+function handleRegionRemoved(regionId) {
+  regionsById.delete(regionId);
+  removeSpectrogramOverlay(regionId);
+  lastValidPositionByRegionId.delete(regionId);
+  warningRegionIds.delete(regionId);
+  if (selectedRegionId === regionId) {
+    selectedRegionId = null;
+  }
+  if (playingRegionId === regionId) {
+    playingRegionId = null;
+  }
+  refreshRegionsUI();
+}
+
+function handleRegionClicked(region) {
+  selectRegion(region.id);
+}
+
+function handleRegionDoubleClicked(region) {
+  playRegionById(region.id);
+}
+
+// Clicking empty waveform background deselects whatever was selected -
+// wavesurfer's own click-to-seek still runs untouched alongside this.
+function handleBackgroundClicked() {
+  selectRegion(null);
+}
+
+function handlePlayStateChange(regionId) {
+  playingRegionId = regionId;
+  renderRegionsTable();
+}
+
+// ---------------------------------------------------------------------------
+// Spectrogram region overlays
+// ---------------------------------------------------------------------------
+
+function addSpectrogramOverlay(region, label) {
+  const overlay = document.createElement("div");
+  overlay.className = "region-overlay";
+  overlay.style.backgroundColor = LABEL_COLORS[label];
+  // Selection only - creation stays waveform-only (the spectrogram has no
+  // time-accurate drag-to-create mapping once zoomed).
+  overlay.addEventListener("click", () => selectRegion(region.id));
+  spectrogramInner.appendChild(overlay);
+  overlaysByRegionId.set(region.id, overlay);
+  updateOverlayGeometry(overlay, region);
+}
+
+function updateOverlayGeometry(overlay, region) {
+  const duration = getDuration();
+  if (!duration) {
+    return;
+  }
+  overlay.style.left = `${(region.start / duration) * 100}%`;
+  overlay.style.width = `${((region.end - region.start) / duration) * 100}%`;
+}
+
+function updateSpectrogramOverlayGeometry(regionId) {
+  const overlay = overlaysByRegionId.get(regionId);
+  const entry = regionsById.get(regionId);
+  if (overlay && entry) {
+    updateOverlayGeometry(overlay, entry.region);
   }
 }
 
-function updateProgress() {
-  const total = currentSegments.length;
-  let healthy = 0;
-  let defective = 0;
-  for (const label of labelsBySegmentId.values()) {
-    if (label === "healthy") {
-      healthy += 1;
-    } else if (label === "defective") {
-      defective += 1;
+function updateSpectrogramOverlayLabel(regionId, label) {
+  const overlay = overlaysByRegionId.get(regionId);
+  if (overlay) {
+    overlay.style.backgroundColor = LABEL_COLORS[label];
+  }
+}
+
+function removeSpectrogramOverlay(regionId) {
+  const overlay = overlaysByRegionId.get(regionId);
+  if (overlay) {
+    overlay.remove();
+    overlaysByRegionId.delete(regionId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Region list table + selection + actions
+// ---------------------------------------------------------------------------
+
+function sortedRegionViewModels() {
+  return Array.from(regionsById.entries())
+    .map(([id, entry]) => ({ id, start: entry.region.start, end: entry.region.end, label: entry.label }))
+    .sort((a, b) => a.start - b.start);
+}
+
+function renderRegionsTable() {
+  renderRegionRows(regionsTbody, sortedRegionViewModels(), {
+    selectedRegionId,
+    playingRegionId,
+    warningRegionIds,
+    onLabelChange: handleLabelChange,
+    onPlay: playRegionById,
+    onRemove: removeRegionById,
+    onRowClick: handleRowClick,
+  });
+}
+
+function refreshRegionsUI() {
+  renderRegionsTable();
+  updateConfirmAvailability();
+  regionsEmptyHint.hidden = regionsById.size > 0;
+}
+
+function updateConfirmAvailability() {
+  const hasLabeledRegion = Array.from(regionsById.values()).some((entry) => entry.label !== "skip");
+  confirmButton.disabled = !hasLabeledRegion;
+}
+
+function handleLabelChange(regionId, label) {
+  const entry = regionsById.get(regionId);
+  if (!entry) {
+    return;
+  }
+  entry.label = label;
+  setRegionLabel(entry.region, label);
+  updateSpectrogramOverlayLabel(regionId, label);
+  renderRegionsTable();
+  updateConfirmAvailability();
+}
+
+function selectRegion(regionId) {
+  if (selectedRegionId) {
+    const previous = regionsById.get(selectedRegionId);
+    if (previous) {
+      setRegionSelected(previous.region, false);
     }
   }
-  const skipped = skippedSegmentIds.size;
-  const reviewed = healthy + defective + skipped;
-  const unlabeled = total - reviewed;
+  selectedRegionId = regionId;
+  if (regionId) {
+    const next = regionsById.get(regionId);
+    if (next) {
+      setRegionSelected(next.region, true);
+    }
+  }
+  renderRegionsTable();
+}
 
-  const summary = `${reviewed} of ${total} reviewed — ${healthy} healthy · ${defective} defective · ${skipped} skipped · ${unlabeled} unlabeled`;
-  bulkProgress.textContent = summary;
-  sessionProgress.textContent = summary;
-  confirmButton.disabled = labelsBySegmentId.size === 0;
+function handleRowClick(regionId) {
+  selectRegion(regionId);
+  const entry = regionsById.get(regionId);
+  if (entry) {
+    scrollToRegion(entry.region);
+  }
+}
 
-  return { total, healthy, defective, skipped, unlabeled };
+function playRegionById(regionId) {
+  const entry = regionsById.get(regionId);
+  if (entry) {
+    playWaveformRegion(entry.region);
+  }
+}
+
+function removeRegionById(regionId) {
+  const entry = regionsById.get(regionId);
+  if (entry) {
+    removeWaveformRegion(entry.region); // triggers "region-removed" -> handleRegionRemoved
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Confirm modal
 // ---------------------------------------------------------------------------
 
+// Mirrors chunk_audio's window count (src/audio_utils.py) in continuous time
+// rather than samples - an estimate, same as the modal's own copy says, not
+// a guarantee of the exact number api/labeling.py's confirm_upload will insert.
+function estimateChunkCount(durationSeconds, segmentDuration, stepDuration) {
+  if (durationSeconds < segmentDuration || stepDuration <= 0) {
+    return 0;
+  }
+  return Math.floor((durationSeconds - segmentDuration) / stepDuration) + 1;
+}
+
+function pluralize(count, singularNoun) {
+  return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
+}
+
 function openConfirmModal() {
-  if (!currentUploadId || labelsBySegmentId.size === 0) {
+  const labeledRegions = Array.from(regionsById.values()).filter((entry) => entry.label !== "skip");
+  if (!currentUploadId || labeledRegions.length === 0) {
     return;
   }
 
-  const { total, healthy, defective, skipped, unlabeled } = updateProgress();
-  confirmModalBreakdown.innerHTML = "";
-  const rows = [
-    ["Healthy", healthy],
-    ["Defective", defective],
-    ["Skipped", skipped],
-    ["Unlabeled (will be skipped)", unlabeled],
-    ["Total segments", total],
-  ];
-  for (const [label, value] of rows) {
-    const dt = document.createElement("dt");
-    dt.textContent = label;
-    const dd = document.createElement("dd");
-    dd.textContent = String(value);
-    confirmModalBreakdown.append(dt, dd);
+  const totalRegionCount = regionsById.size;
+  const skippedCount = totalRegionCount - labeledRegions.length;
+  const estimatedChunks = labeledRegions.reduce(
+    (sum, entry) =>
+      sum + estimateChunkCount(entry.region.end - entry.region.start, currentUploadMeta.segmentDuration, currentUploadMeta.stepDuration),
+    0
+  );
+  const countsByLabel = { healthy: 0, defective: 0 };
+  for (const entry of labeledRegions) {
+    countsByLabel[entry.label] += 1;
   }
 
+  confirmModalBreakdown.innerHTML = "";
+
+  const summaryLine = document.createElement("p");
+  summaryLine.textContent =
+    `${pluralize(totalRegionCount, "region")} → ~${pluralize(estimatedChunks, "segment")} ` +
+    `(at ${currentUploadMeta.segmentDuration}s / ${currentUploadMeta.stepDuration}s step)`;
+  confirmModalBreakdown.appendChild(summaryLine);
+
+  const breakdownParts = [];
+  if (countsByLabel.healthy > 0) {
+    breakdownParts.push(pluralize(countsByLabel.healthy, "healthy region"));
+  }
+  if (countsByLabel.defective > 0) {
+    breakdownParts.push(pluralize(countsByLabel.defective, "defective region"));
+  }
+  if (skippedCount > 0) {
+    breakdownParts.push(pluralize(skippedCount, "skipped region"));
+  }
+  const breakdownLine = document.createElement("p");
+  breakdownLine.textContent = breakdownParts.join(" · ");
+  confirmModalBreakdown.appendChild(breakdownLine);
+
   const meta = currentUploadMeta.sourceMetadata || {};
-  confirmModalMetadata.textContent = [currentUploadMeta.domain, meta.bike_model, meta.model_year]
-    .filter(Boolean)
-    .join(" · ");
+  confirmModalMetadata.textContent = [currentUploadMeta.domain, meta.bike_model, meta.model_year].filter(Boolean).join(" · ");
 
   confirmModalError.hidden = true;
   confirmModalError.textContent = "";
@@ -485,19 +861,24 @@ function closeConfirmModal() {
 }
 
 async function handleConfirmSave() {
-  const labels = Array.from(labelsBySegmentId, ([segment_id, label]) => ({ segment_id, label }));
+  const regions = Array.from(regionsById.values())
+    .filter((entry) => entry.label !== "skip")
+    .map((entry) => ({ start_time: entry.region.start, end_time: entry.region.end, label: entry.label }));
 
   confirmModalSave.disabled = true;
   confirmModalSave.textContent = "Saving…";
 
   try {
-    const response = await confirmUpload(currentUploadId, labels);
-    confirmStatus.textContent =
-      `Saved ${response.inserted} segment(s).` +
-      (response.failed.length ? ` ${response.failed.length} failed - see console.` : "");
-    if (response.failed.length) {
-      console.error("Some segments failed to confirm:", response.failed);
+    const response = await confirmUpload(currentUploadId, regions);
+    const parts = [`Saved ${response.inserted} segment(s) from ${pluralize(regions.length, "region")}.`];
+    if (response.skipped_regions > 0) {
+      parts.push(`${pluralize(response.skipped_regions, "region")} too short - skipped.`);
     }
+    if (response.failed.length) {
+      parts.push(`${response.failed.length} failed - see console.`);
+      console.error("Some chunks failed to confirm:", response.failed);
+    }
+    confirmStatus.textContent = parts.join(" ");
     closeConfirmModal();
     if (response.inserted > 0) {
       resetAfterConfirm();
@@ -512,15 +893,20 @@ async function handleConfirmSave() {
 
 function resetAfterConfirm() {
   currentUploadId = null;
-  currentSegments = [];
   currentUploadMeta = null;
-  labelsBySegmentId = new Map();
-  skippedSegmentIds = new Set();
-  segmentsGrid.innerHTML = "";
-  segmentsPanel.hidden = true;
-  waveformPanel.hidden = true;
+  clearAllRegions();
+  hideOverlapToast();
+  audioWorkspace.hidden = true;
+  regionsPanel.hidden = true;
   fileInput.value = "";
   fileInputFilename.textContent = NO_FILE_TEXT;
+}
+
+function clearAllRegions() {
+  const entries = Array.from(regionsById.values());
+  for (const entry of entries) {
+    removeWaveformRegion(entry.region); // each remove synchronously runs handleRegionRemoved
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -528,8 +914,7 @@ function resetAfterConfirm() {
 // ---------------------------------------------------------------------------
 
 function handleBeforeUnload(event) {
-  const hasUnsavedWork = currentSegments.length > 0 && (labelsBySegmentId.size > 0 || skippedSegmentIds.size > 0);
-  if (hasUnsavedWork) {
+  if (regionsById.size > 0) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -538,10 +923,6 @@ function handleBeforeUnload(event) {
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts
 // ---------------------------------------------------------------------------
-
-function getActiveSegmentId() {
-  return focusedSegmentId || hoveredSegmentId;
-}
 
 function handleKeydown(event) {
   if (isConfirmModalOpen) {
@@ -552,7 +933,7 @@ function handleKeydown(event) {
     return;
   }
 
-  if (tabLabelPanel.hidden || segmentsPanel.hidden) {
+  if (tabLabelPanel.hidden || regionsPanel.hidden) {
     return;
   }
 
@@ -564,74 +945,70 @@ function handleKeydown(event) {
 
   const key = event.key.toLowerCase();
 
-  if (event.shiftKey && key === "h") {
-    bulkLabelUnlabeledOnly("healthy");
-    event.preventDefault();
-    return;
-  }
-  if (event.shiftKey && key === "d") {
-    bulkLabelUnlabeledOnly("defective");
-    event.preventDefault();
-    return;
-  }
-
   switch (key) {
     case "h":
-      labelActiveSegment("healthy");
+      labelSelectedRegion("healthy");
       event.preventDefault();
       break;
     case "d":
-      labelActiveSegment("defective");
+      labelSelectedRegion("defective");
       event.preventDefault();
       break;
     case "s":
-      labelActiveSegment("unlabeled");
+      labelSelectedRegion("skip");
       event.preventDefault();
       break;
     case " ":
-      togglePlayActiveSegment();
+      toggleSelectedRegionPlayback();
       event.preventDefault();
       break;
-    case "arrowright":
-      focusAdjacentCard(1);
+    case "delete":
+      removeSelectedRegion();
       event.preventDefault();
       break;
-    case "arrowleft":
-      focusAdjacentCard(-1);
-      event.preventDefault();
+    case "tab":
+      if (regionsById.size > 0) {
+        selectAdjacentRegion(event.shiftKey ? -1 : 1);
+        event.preventDefault();
+      }
       break;
     default:
       break;
   }
 }
 
-function labelActiveSegment(label) {
-  const segmentId = getActiveSegmentId();
-  if (!segmentId) {
+function labelSelectedRegion(label) {
+  if (!selectedRegionId) {
     return;
   }
-  handleLabelChange(segmentId, label);
+  handleLabelChange(selectedRegionId, label);
 }
 
-function togglePlayActiveSegment() {
-  const segmentId = getActiveSegmentId();
-  if (!segmentId) {
+function toggleSelectedRegionPlayback() {
+  if (!selectedRegionId) {
     return;
   }
-  const segment = currentSegments.find((s) => s.segment_id === segmentId);
-  if (!segment) {
-    return;
-  }
-  playSegment(segmentId, segment.start_time, segment.end_time);
+  playRegionById(selectedRegionId);
 }
 
-function focusAdjacentCard(direction) {
-  const visibleIds = getVisibleSegmentIdsInOrder();
-  if (visibleIds.length === 0) {
+function removeSelectedRegion() {
+  if (!selectedRegionId) {
     return;
   }
-  const activeId = getActiveSegmentId();
-  const currentIndex = activeId ? visibleIds.indexOf(activeId) : -1;
-  const nextIndex = Math.max(0, Math.min(visibleIds.length - 1, currentIndex + direction));
-  getCardElement(visibleIds[nextIndex])?.focus();
+  removeRegionById(selectedRegionId);
+}
+
+function selectAdjacentRegion(direction) {
+  const sortedIds = sortedRegionViewModels().map((viewModel) => viewModel.id);
+  if (sortedIds.length === 0) {
+    return;
+  }
+  const currentIndex = selectedRegionId ? sortedIds.indexOf(selectedRegionId) : -1;
+  const nextIndex = Math.max(0, Math.min(sortedIds.length - 1, currentIndex + direction));
+  const nextId = sortedIds[nextIndex];
+  selectRegion(nextId);
+  const entry = regionsById.get(nextId);
+  if (entry) {
+    scrollToRegion(entry.region);
+  }
 }

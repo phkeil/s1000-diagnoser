@@ -1,145 +1,107 @@
-// Segment grid: spectrogram image + play button + 3-way label toggle per
-// segment. Presentation only - owns no *label* state (upload.js's
-// labelsBySegmentId Map remains the single source of truth there), but does
-// keep a segmentId -> card element lookup so upload.js can apply
-// programmatic updates (bulk labeling, keyboard shortcuts, playback state)
-// without rebuilding the DOM - a full re-render per label change would
-// re-trigger every <img>'s network fetch, which is exactly what lazy-loading
-// + the skeleton/retry states below are trying to avoid.
+// Region list table: one row per user-drawn region, with a start/end/duration
+// readout, a label dropdown, and play/remove actions. Presentation only -
+// owns no state (upload.js's region map is the single source of truth) and
+// is rebuilt wholesale on every change. That's deliberately simpler than the
+// old per-segment card grid's surgical DOM updates (which existed only to
+// avoid re-triggering lazy-loaded spectrogram <img> fetches) - a table of a
+// few dozen plain text/dropdown rows is cheap to fully re-render, even on
+// every pixel of a live region drag.
 
-const LABELS = ["unlabeled", "healthy", "defective"];
-const LABEL_TEXT = { unlabeled: "Skip", healthy: "Healthy", defective: "Defective" };
+const LABELS = ["healthy", "defective", "skip"];
+const LABEL_TEXT = { healthy: "Healthy", defective: "Defective", skip: "Skip" };
 const PLAY_ICON = "▶"; // ▶
 const STOP_ICON = "■"; // ■
 
-let cardsBySegmentId = new Map();
-
-export function renderSegments(container, segments, { onLabelChange, onPlay } = {}) {
-  container.innerHTML = "";
-  cardsBySegmentId = new Map();
-  for (const segment of segments) {
-    const card = buildSegmentCard(segment, onLabelChange, onPlay);
-    cardsBySegmentId.set(segment.segmentId, card);
-    container.appendChild(card);
-  }
-}
-
-// Sets the toggle's selected label on one card without touching anything
-// else (image, region, other cards) - the shared path for a manual click,
-// a bulk action, and a keyboard shortcut alike.
-export function setCardLabel(segmentId, label) {
-  const card = cardsBySegmentId.get(segmentId);
-  if (!card) {
-    return;
-  }
-  card.querySelectorAll(".label-toggle button").forEach((button) => {
-    button.classList.toggle("selected", button.dataset.label === label);
+// regions: [{id, start, end, label}], already sorted by start time - the "#"
+// column and row order both follow that order directly. warningRegionIds
+// (a Set, optional): regions that would be overlapped by a drag currently in
+// progress elsewhere - highlighted here, cleared by the caller on drag end.
+export function renderRegionRows(
+  tbody,
+  regions,
+  { selectedRegionId, playingRegionId, warningRegionIds, onLabelChange, onPlay, onRemove, onRowClick } = {}
+) {
+  tbody.innerHTML = "";
+  regions.forEach((region, index) => {
+    tbody.appendChild(
+      buildRow(region, index, { selectedRegionId, playingRegionId, warningRegionIds, onLabelChange, onPlay, onRemove, onRowClick })
+    );
   });
 }
 
-// playingSegmentId: the one segment currently playing, or null if none.
-// Clears the highlight/icon on every other card - only one segment plays at
-// a time (see web/js/waveform.js).
-export function setCardPlaying(playingSegmentId) {
-  for (const [segmentId, card] of cardsBySegmentId) {
-    const isPlaying = segmentId === playingSegmentId;
-    card.classList.toggle("is-playing", isPlaying);
-    const playButton = card.querySelector(".play-button");
-    playButton.textContent = isPlaying ? STOP_ICON : PLAY_ICON;
-    playButton.setAttribute("aria-label", isPlaying ? "Stop segment" : "Play segment");
+function buildRow(region, index, { selectedRegionId, playingRegionId, warningRegionIds, onLabelChange, onPlay, onRemove, onRowClick }) {
+  const row = document.createElement("tr");
+  row.dataset.regionId = region.id;
+  const classes = [];
+  if (region.id === selectedRegionId) classes.push("is-selected");
+  if (region.id === playingRegionId) classes.push("is-playing");
+  if (warningRegionIds?.has(region.id)) classes.push("is-overlap-warning");
+  row.className = classes.join(" ");
+
+  row.appendChild(buildCell(String(index + 1)));
+  row.appendChild(buildCell(`${region.start.toFixed(2)}s`));
+  row.appendChild(buildCell(`${region.end.toFixed(2)}s`));
+  row.appendChild(buildCell(`${(region.end - region.start).toFixed(2)}s`));
+  row.appendChild(buildLabelCell(region, onLabelChange));
+  row.appendChild(buildActionsCell(region, playingRegionId, onPlay, onRemove));
+
+  row.addEventListener("click", () => onRowClick?.(region.id));
+
+  return row;
+}
+
+function buildCell(text) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  return td;
+}
+
+function buildLabelCell(region, onLabelChange) {
+  const td = document.createElement("td");
+  const select = document.createElement("select");
+  select.className = "region-label-select";
+  select.dataset.label = region.label;
+  for (const label of LABELS) {
+    const option = document.createElement("option");
+    option.value = label;
+    option.textContent = LABEL_TEXT[label];
+    option.selected = label === region.label;
+    select.appendChild(option);
   }
+  select.addEventListener("click", (event) => event.stopPropagation());
+  select.addEventListener("change", () => {
+    select.dataset.label = select.value;
+    onLabelChange?.(region.id, select.value);
+  });
+  td.appendChild(select);
+  return td;
 }
 
-export function setCardVisible(segmentId, visible) {
-  const card = cardsBySegmentId.get(segmentId);
-  if (card) {
-    card.hidden = !visible;
-  }
-}
+function buildActionsCell(region, playingRegionId, onPlay, onRemove) {
+  const td = document.createElement("td");
+  td.className = "region-actions";
 
-export function getCardElement(segmentId) {
-  return cardsBySegmentId.get(segmentId);
-}
-
-// DOM/render order, filtered to whatever isn't currently hidden by the
-// active filter - the order arrow-key navigation walks.
-export function getVisibleSegmentIdsInOrder() {
-  return [...cardsBySegmentId.entries()].filter(([, card]) => !card.hidden).map(([segmentId]) => segmentId);
-}
-
-function buildSegmentCard(segment, onLabelChange, onPlay) {
-  const card = document.createElement("div");
-  card.className = "segment-card";
-  card.dataset.segmentId = segment.segmentId;
-  card.tabIndex = 0;
-
-  card.appendChild(buildSpectrogramImage(segment));
-
-  const time = document.createElement("div");
-  time.className = "segment-time";
-  time.textContent = `${segment.startTime.toFixed(2)}s – ${segment.endTime.toFixed(2)}s`;
-  card.appendChild(time);
-
-  const actions = document.createElement("div");
-  actions.className = "segment-actions";
-
+  const isPlaying = region.id === playingRegionId;
   const playButton = document.createElement("button");
   playButton.type = "button";
   playButton.className = "play-button";
-  playButton.textContent = PLAY_ICON;
-  playButton.setAttribute("aria-label", "Play segment");
-  playButton.addEventListener("click", () => onPlay?.(segment.segmentId, segment.startTime, segment.endTime));
-  actions.appendChild(playButton);
-
-  actions.appendChild(buildLabelToggle(segment, onLabelChange));
-  card.appendChild(actions);
-
-  return card;
-}
-
-// While loading: skeleton shimmer (CSS, driven by the absence of is-loaded/
-// is-error). On error: a retry button that re-triggers the fetch via a
-// cache-busting query param, instead of a permanent broken-image icon.
-function buildSpectrogramImage(segment) {
-  const wrap = document.createElement("div");
-  wrap.className = "spectrogram-wrap";
-
-  const img = document.createElement("img");
-  img.loading = "lazy";
-  img.alt = `Spectrogram, ${segment.startTime.toFixed(2)}s–${segment.endTime.toFixed(2)}s`;
-  img.addEventListener("load", () => wrap.classList.add("is-loaded"));
-  img.addEventListener("error", () => wrap.classList.add("is-error"));
-  img.src = segment.spectrogramUrl;
-
-  const retryButton = document.createElement("button");
-  retryButton.type = "button";
-  retryButton.className = "spectrogram-retry";
-  retryButton.textContent = "↺ Retry"; // ↺ Retry
-  retryButton.addEventListener("click", () => {
-    wrap.classList.remove("is-error", "is-loaded");
-    const separator = segment.spectrogramUrl.includes("?") ? "&" : "?";
-    img.src = `${segment.spectrogramUrl}${separator}retry=${Date.now()}`;
+  playButton.textContent = isPlaying ? STOP_ICON : PLAY_ICON;
+  playButton.setAttribute("aria-label", isPlaying ? "Stop region" : "Play region");
+  playButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onPlay?.(region.id);
   });
 
-  wrap.append(img, retryButton);
-  return wrap;
-}
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "secondary-button remove-button";
+  removeButton.textContent = "✕"; // ✕
+  removeButton.setAttribute("aria-label", "Remove region");
+  removeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onRemove?.(region.id);
+  });
 
-function buildLabelToggle(segment, onLabelChange) {
-  const toggle = document.createElement("div");
-  toggle.className = "label-toggle";
-
-  for (const label of LABELS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.label = label;
-    button.textContent = LABEL_TEXT[label];
-    if (label === segment.currentLabel) {
-      button.classList.add("selected");
-    }
-    button.addEventListener("click", () => onLabelChange?.(segment.segmentId, label));
-    toggle.appendChild(button);
-  }
-
-  return toggle;
+  td.append(playButton, removeButton);
+  return td;
 }

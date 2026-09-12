@@ -41,15 +41,16 @@ export async function getUpload(uploadId) {
   return requestJson(`/uploads/${encodeURIComponent(uploadId)}`);
 }
 
-export function spectrogramUrl(segmentId) {
-  return `/spectrogram/${encodeURIComponent(segmentId)}`;
+export function fullSpectrogramUrl(uploadId) {
+  return `/uploads/${encodeURIComponent(uploadId)}/spectrogram`;
 }
 
-export async function confirmUpload(uploadId, labels) {
+// regions: [{start_time, end_time, label: "healthy" | "defective" | "skip"}]
+export async function confirmUpload(uploadId, regions) {
   return requestJson(`/uploads/${encodeURIComponent(uploadId)}/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ labels }),
+    body: JSON.stringify({ regions }),
   });
 }
 

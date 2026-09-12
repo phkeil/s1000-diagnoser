@@ -27,10 +27,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import librosa
 import numpy as np
 import soundfile as sf
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from PIL import Image
 
 from api.labeling_schemas import (
     ConfirmRequest,
@@ -43,7 +45,7 @@ from api.labeling_schemas import (
     UploadResponse,
 )
 from src import manifest
-from src.audio_utils import chunk_audio, load_audio
+from src.audio_utils import chunk_audio, load_audio, trim_audio
 from src.config import Config, load_config
 from src.data import render_mel_spectrogram_image
 from src.inference import infer_domain
@@ -60,6 +62,7 @@ UPLOADED_AUDIO_DIR = "data/raw/uploaded"
 MANUAL_PNG_DIR = "data/processed/manual"
 TRAIN_EXPERIMENT_NAME = "s1000-cae-anomaly"
 LOG_TAIL_LINES = 50
+MAX_SPECTROGRAM_WIDTH_PX = 4096
 
 # Module-level: real config.yaml, loaded once. Tests monkeypatch this
 # attribute (`labeling._cfg = dataclasses.replace(cfg, root_dir=tmp_path)`)
@@ -227,6 +230,55 @@ def get_upload(upload_id: str) -> UploadResponse:
     return _session_to_upload_response(session, _cfg)
 
 
+def _render_full_file_spectrogram_image(audio: np.ndarray, sr: int, cfg: Config) -> Image.Image:
+    """Whole-file mel spectrogram for the waveform's companion panel, one
+    pixel per hop. render_mel_spectrogram_image can't be reused directly here:
+    it bakes in a fixed square output (a matplotlib figsize plus a final
+    resize to cfg.image.size) sized for a single model-input window, whereas
+    this view must stay proportional to the file's full duration - so this
+    mirrors its mel/dB/colormap parameters instead of its rendering path.
+    """
+    mel_cfg = cfg.mel_spectrogram
+    S = librosa.feature.melspectrogram(
+        y=audio,
+        sr=sr,
+        n_fft=mel_cfg.n_fft,
+        hop_length=mel_cfg.hop_length,
+        n_mels=mel_cfg.n_mels,
+        fmin=mel_cfg.fmin,
+        fmax=mel_cfg.fmax,
+    )
+    S_db = librosa.power_to_db(S, ref=np.max)
+
+    from matplotlib import colormaps
+    from matplotlib.colors import Normalize
+
+    norm = Normalize(vmin=mel_cfg.db_vmin, vmax=mel_cfg.db_vmax, clip=True)
+    cmap = colormaps[cfg.image.colormap]
+    # Flip rows so the lowest mel band renders at the bottom, matching
+    # render_mel_spectrogram_image's imshow(..., origin="lower").
+    rgb = (cmap(norm(S_db[::-1, :]))[:, :, :3] * 255).astype(np.uint8)
+    image = Image.fromarray(rgb, mode="RGB")
+
+    if image.width > MAX_SPECTROGRAM_WIDTH_PX:
+        resample = getattr(Image.Resampling, cfg.image.resample)
+        image = image.resize((MAX_SPECTROGRAM_WIDTH_PX, image.height), resample)
+
+    return image
+
+
+@router.get("/uploads/{upload_id}/spectrogram")
+def get_full_spectrogram(upload_id: str) -> Response:
+    session = _upload_sessions.get(upload_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Unknown upload_id '{upload_id}'.")
+
+    image = _render_full_file_spectrogram_image(session["audio"], session["sample_rate"], _cfg)
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
 @router.get("/spectrogram/{segment_id}")
 def get_spectrogram(segment_id: str) -> Response:
     session, index = _resolve_segment(segment_id)
@@ -282,44 +334,56 @@ def confirm_upload(upload_id: str, request: ConfirmRequest) -> ConfirmResponse:
     inserted = 0
     manifest_ids: List[int] = []
     failed: List[dict] = []
+    skipped_regions = 0
     source_file_id: Optional[int] = None
 
     try:
-        for label_entry in request.labels:
-            try:
-                _, sep, index_str = label_entry.segment_id.partition(":")
-                if not sep or not index_str.isdigit():
-                    raise ValueError(f"Malformed segment_id '{label_entry.segment_id}'.")
-                index = int(index_str)
-                if index < 0 or index >= len(session["chunks"]):
-                    raise ValueError(f"Segment index {index} out of range for upload '{upload_id}'.")
+        for region in request.regions:
+            if region.label == "skip":
+                continue
 
-                if source_file_id is None:
-                    source_file_id = _persist_source_file(conn, session)
+            sr = session["sample_rate"]
+            region_audio = trim_audio(
+                session["audio"], round(region.start_time * sr), round(region.end_time * sr)
+            )
+            # The fixed 1.0s/0.25s-step grid the model trains on is applied
+            # here, invisibly to the user, who only ever drew a free-form
+            # region - chunk_audio already drops any trailing chunk shorter
+            # than segment_duration, so a region under one window just
+            # yields zero chunks rather than a padded/short one.
+            chunks = chunk_audio(region_audio, sr, _cfg.audio.segment_duration, _cfg.audio.step_duration)
+            if not chunks:
+                skipped_regions += 1
+                continue
 
-                start_time, samples = session["chunks"][index]
-                png_path = _render_and_save_png(samples, session, label_entry.label, start_time)
-                segment_id = manifest.add_segment(
-                    conn,
-                    source_file_id,
-                    start_time_seconds=start_time,
-                    duration_seconds=_cfg.audio.segment_duration,
-                    label=label_entry.label,
-                    domain=session["domain"],
-                    rendered_png_path=png_path,
-                    approved=True,
-                )
-                manifest_ids.append(segment_id)
-                inserted += 1
-            except Exception as exc:
-                failed.append({"segment_id": label_entry.segment_id, "error": str(exc)})
+            for chunk_offset, samples in chunks:
+                absolute_start_time = region.start_time + chunk_offset
+                try:
+                    if source_file_id is None:
+                        source_file_id = _persist_source_file(conn, session)
+
+                    png_path = _render_and_save_png(samples, session, region.label, absolute_start_time)
+                    segment_id = manifest.add_segment(
+                        conn,
+                        source_file_id,
+                        start_time_seconds=absolute_start_time,
+                        duration_seconds=_cfg.audio.segment_duration,
+                        label=region.label,
+                        domain=session["domain"],
+                        rendered_png_path=png_path,
+                        approved=True,
+                    )
+                    manifest_ids.append(segment_id)
+                    inserted += 1
+                except Exception as exc:
+                    failed.append({"start_time": absolute_start_time, "label": region.label, "error": str(exc)})
     finally:
         conn.close()
 
     if inserted > 0:
         _upload_sessions.pop(upload_id, None)
 
-    return ConfirmResponse(inserted=inserted, failed=failed, manifest_ids=manifest_ids)
+    return ConfirmResponse(inserted=inserted, failed=failed, manifest_ids=manifest_ids, skipped_regions=skipped_regions)
 
 
 def _current_running_job() -> Optional[TrainJob]:

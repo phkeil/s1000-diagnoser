@@ -11,9 +11,13 @@ SQLite database.
 """
 
 import dataclasses
+import io
 
+import librosa
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import api.labeling as labeling
 from api.tool_app import app as tool_app
@@ -152,8 +156,8 @@ def test_confirm_passes_recording_metadata_through_to_get_or_create_source_file(
 
     monkeypatch.setattr(labeling.manifest, "get_or_create_source_file", fake_get_or_create_source_file)
 
-    segment_id = upload["segments"][0]["segment_id"]
-    client.post(f"/uploads/{upload['upload_id']}/confirm", json={"labels": [{"segment_id": segment_id, "label": "healthy"}]})
+    regions = [{"start_time": 0.0, "end_time": 1.0, "label": "healthy"}]
+    client.post(f"/uploads/{upload['upload_id']}/confirm", json={"regions": regions})
 
     metadata = captured["metadata"]
     assert metadata.contributor == "Philip"
@@ -194,10 +198,41 @@ def test_get_spectrogram_unknown_id_returns_404(client):
     assert response.status_code == 404
 
 
-def test_confirm_inserts_labeled_segments_and_skips_unlabeled(client, sine_wave_audio_file, monkeypatch):
+def test_get_full_spectrogram_returns_valid_png(client, sine_wave_audio_file):
     upload = _upload_sine_wave(client, sine_wave_audio_file).json()
-    segment_ids = [s["segment_id"] for s in upload["segments"]]
-    assert len(segment_ids) >= 2
+
+    response = client.get(f"/uploads/{upload['upload_id']}/spectrogram")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_get_full_spectrogram_width_is_proportional_to_duration(client, sine_wave_audio_file, sine_wave_signal, cfg):
+    """1 pixel ~= 1 hop for a file well under the 4096px cap - the 3s sine
+    fixture is nowhere near that, so no downsampling should have kicked in."""
+    upload = _upload_sine_wave(client, sine_wave_audio_file).json()
+
+    response = client.get(f"/uploads/{upload['upload_id']}/spectrogram")
+
+    image = Image.open(io.BytesIO(response.content))
+    signal, sr = sine_wave_signal
+    mel_cfg = cfg.mel_spectrogram
+    expected_hops = librosa.feature.melspectrogram(
+        y=signal, sr=sr, n_fft=mel_cfg.n_fft, hop_length=mel_cfg.hop_length, n_mels=mel_cfg.n_mels
+    ).shape[1]
+    assert image.width == expected_hops
+    assert image.height == cfg.mel_spectrogram.n_mels
+
+
+def test_get_full_spectrogram_unknown_id_returns_404(client):
+    response = client.get("/uploads/does-not-exist/spectrogram")
+
+    assert response.status_code == 404
+
+
+def test_confirm_inserts_chunked_segments_and_skips_skipped_regions(client, sine_wave_audio_file, monkeypatch, cfg):
+    upload = _upload_sine_wave(client, sine_wave_audio_file).json()
 
     monkeypatch.setattr(labeling.manifest, "get_connection", lambda path: _FakeConnection())
     monkeypatch.setattr(labeling.manifest, "init_db", lambda conn: None)
@@ -205,25 +240,50 @@ def test_confirm_inserts_labeled_segments_and_skips_unlabeled(client, sine_wave_
     next_ids = iter(range(100, 200))
     monkeypatch.setattr(labeling.manifest, "add_segment", lambda *a, **kw: next(next_ids))
 
-    labels = [
-        {"segment_id": segment_ids[0], "label": "healthy"},
-        {"segment_id": segment_ids[1], "label": "defective"},
-        # every other segment left out of the request entirely = skipped
+    regions = [
+        {"start_time": 0.0, "end_time": 1.5, "label": "healthy"},
+        {"start_time": 1.5, "end_time": 3.0, "label": "defective"},
+        {"start_time": 2.0, "end_time": 2.5, "label": "skip"},  # dropped, never chunked
     ]
 
-    response = client.post(f"/uploads/{upload['upload_id']}/confirm", json={"labels": labels})
+    response = client.post(f"/uploads/{upload['upload_id']}/confirm", json={"regions": regions})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["inserted"] == 2
+
+    expected_chunks = len(
+        chunk_audio(
+            np.zeros(int(1.5 * cfg.audio.sample_rate)), cfg.audio.sample_rate, cfg.audio.segment_duration, cfg.audio.step_duration
+        )
+    )
+    assert body["inserted"] == expected_chunks * 2  # two labeled 1.5s regions, same length
     assert body["failed"] == []
-    assert len(body["manifest_ids"]) == 2
+    assert len(body["manifest_ids"]) == body["inserted"]
+    assert body["skipped_regions"] == 0
+
+
+def test_confirm_region_shorter_than_one_window_yields_zero_chunks(client, sine_wave_audio_file, monkeypatch):
+    upload = _upload_sine_wave(client, sine_wave_audio_file).json()
+
+    monkeypatch.setattr(labeling.manifest, "get_connection", lambda path: _FakeConnection())
+    monkeypatch.setattr(labeling.manifest, "init_db", lambda conn: None)
+    monkeypatch.setattr(labeling.manifest, "get_or_create_source_file", lambda *a, **kw: 1)
+    monkeypatch.setattr(labeling.manifest, "add_segment", lambda *a, **kw: 1)
+
+    regions = [{"start_time": 0.0, "end_time": 0.5, "label": "healthy"}]  # under the 1.0s window
+
+    response = client.post(f"/uploads/{upload['upload_id']}/confirm", json={"regions": regions})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inserted"] == 0
+    assert body["failed"] == []
+    assert body["manifest_ids"] == []
+    assert body["skipped_regions"] == 1
 
 
 def test_confirm_one_manifest_failure_does_not_abort_the_others(client, sine_wave_audio_file, monkeypatch):
     upload = _upload_sine_wave(client, sine_wave_audio_file).json()
-    segment_ids = [s["segment_id"] for s in upload["segments"]]
-    assert len(segment_ids) >= 2
 
     monkeypatch.setattr(labeling.manifest, "get_connection", lambda path: _FakeConnection())
     monkeypatch.setattr(labeling.manifest, "init_db", lambda conn: None)
@@ -236,23 +296,22 @@ def test_confirm_one_manifest_failure_does_not_abort_the_others(client, sine_wav
 
     monkeypatch.setattr(labeling.manifest, "add_segment", flaky_add_segment)
 
-    labels = [
-        {"segment_id": segment_ids[0], "label": "healthy"},  # start_time 0.0 -> fails
-        {"segment_id": segment_ids[1], "label": "defective"},  # succeeds
-    ]
+    # A single region spanning two chunk windows (0.0s and 0.25s starts): the
+    # first chunk's insert fails, the second still succeeds.
+    regions = [{"start_time": 0.0, "end_time": 1.25, "label": "healthy"}]
 
-    response = client.post(f"/uploads/{upload['upload_id']}/confirm", json={"labels": labels})
+    response = client.post(f"/uploads/{upload['upload_id']}/confirm", json={"regions": regions})
 
     assert response.status_code == 200
     body = response.json()
     assert body["inserted"] == 1
     assert len(body["failed"]) == 1
-    assert body["failed"][0]["segment_id"] == segment_ids[0]
+    assert body["failed"][0]["start_time"] == 0.0
     assert body["manifest_ids"] == [42]
 
 
 def test_confirm_unknown_upload_id_returns_404(client):
-    response = client.post("/uploads/does-not-exist/confirm", json={"labels": []})
+    response = client.post("/uploads/does-not-exist/confirm", json={"regions": []})
 
     assert response.status_code == 404
 

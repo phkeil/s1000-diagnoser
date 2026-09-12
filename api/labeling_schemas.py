@@ -49,19 +49,26 @@ class UploadResponse(BaseModel):
     segments: list[SegmentInfo]
 
 
-class SegmentLabel(BaseModel):
-    segment_id: str
-    label: Literal["healthy", "defective"]
+class RegionLabel(BaseModel):
+    """A user-drawn labeled stretch of the waveform, in absolute seconds into
+    the uploaded recording. Chunking into fixed-size model-input windows
+    happens server-side at confirm time (see api/labeling.py's confirm_upload) -
+    the region itself carries no notion of the training grid."""
+
+    start_time: float
+    end_time: float
+    label: Literal["healthy", "defective", "skip"]
 
 
 class ConfirmRequest(BaseModel):
-    labels: list[SegmentLabel]  # skipped segments simply absent
+    regions: list[RegionLabel]  # label="skip" entries are dropped, not inserted
 
 
 class ConfirmResponse(BaseModel):
     inserted: int
     failed: list[dict]  # [{segment_id, error}]
     manifest_ids: list[int]
+    skipped_regions: int = 0  # labeled regions too short to yield a single chunk_audio window
 
 
 class TrainRequest(BaseModel):

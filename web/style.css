@@ -265,73 +265,157 @@ textarea {
   margin-top: 0.75rem;
 }
 
-.waveform-panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
+.audio-workspace {
   margin-bottom: 1rem;
 }
 
-#waveform {
-  margin-bottom: 0.75rem;
-}
-
-.segments-sticky-stack {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--bg);
-  padding-bottom: 0.75rem;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.bulk-actions-bar {
+.zoom-control {
   display: flex;
   align-items: center;
-  gap: 1.25rem;
-  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.zoom-control input[type="range"] {
+  flex: 1;
+  max-width: 420px;
+}
+
+.transport-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.transport-bar button {
+  padding: 0.4rem 0.8rem;
+}
+
+.transport-bar .status-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.waveform-hint {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* One unified box: the waveform and spectrogram are two halves of the same
+   panel (a shared background/border/radius), separated only by the
+   spectrogram half's own border-top - no gap or second border between them. */
+.audio-panel {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-top: 0.75rem;
+  overflow: hidden;
 }
 
-.bulk-group {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+#waveform {
+  padding: 0.75rem 0 0.5rem;
 }
 
-.confirm-group,
-.progress-group {
-  margin-left: auto;
+.spectrogram-panel {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 1px solid var(--border);
+  background: #000;
+  padding: 0.75rem 0;
 }
 
-.bulk-label {
+.spectrogram-inner {
+  position: relative;
+  height: 160px;
+}
+
+.spectrogram-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.spectrogram-image.is-loaded {
+  opacity: 1;
+}
+
+.spectrogram-panel:not(.is-loaded):not(.is-error)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--panel) 25%, var(--border) 50%, var(--panel) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.spectrogram-retry {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--panel);
+  border: none;
   color: var(--muted);
-  font-size: 0.8rem;
-  margin-right: 0.2rem;
+  font-size: 0.85rem;
 }
 
-.bulk-button,
-.filter-button {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 0.3rem 0.65rem;
+.spectrogram-panel.is-error .spectrogram-retry {
+  display: block;
+}
+
+.region-overlay {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+/* Thin vertical guide shown while dragging/resizing a region, marking a
+   nearby snap candidate (another region's edge, or the file start/end). */
+.snap-guide {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.snap-guide[hidden] {
+  display: none;
+}
+
+/* Non-blocking, auto-dismissing notice for a rejected (overlapping) region
+   drag - no modal/alert, just a brief toast over the audio panel. */
+.overlap-toast {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  z-index: 10;
+  transform: translateX(-50%) translateY(-6px);
+  background: rgba(15, 16, 20, 0.92);
+  color: #fff;
+  padding: 0.5rem 0.9rem;
   border-radius: 6px;
   font-size: 0.8rem;
-  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.filter-button.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b0d12;
-  font-weight: 600;
+.overlap-toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .session-header {
@@ -345,12 +429,6 @@ textarea {
 
 .session-item:empty {
   display: none;
-}
-
-.session-progress {
-  margin-left: auto;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
 }
 
 .shortcuts-legend {
@@ -381,62 +459,6 @@ textarea {
   color: var(--text);
 }
 
-.segments-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1rem;
-}
-
-.segment-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.segment-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.segment-card.is-playing {
-  border-color: var(--accent);
-  background: rgba(91, 141, 239, 0.14);
-}
-
-.spectrogram-wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  border-radius: 4px;
-  overflow: hidden;
-  background: #000;
-}
-
-.spectrogram-wrap img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.spectrogram-wrap.is-loaded img {
-  opacity: 1;
-}
-
-.spectrogram-wrap:not(.is-loaded):not(.is-error)::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, var(--panel) 25%, var(--border) 50%, var(--panel) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
@@ -446,69 +468,110 @@ textarea {
   }
 }
 
-.spectrogram-retry {
-  display: none;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+.regions-panel {
   background: var(--panel);
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.regions-sticky-stack {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.regions-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.regions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.regions-table th,
+.regions-table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.regions-table th {
   color: var(--muted);
-  font-size: 0.8rem;
-  border-radius: 0;
-}
-
-.spectrogram-wrap.is-error .spectrogram-retry {
-  display: block;
-}
-
-.segment-card .segment-time {
+  font-weight: 600;
   font-size: 0.75rem;
-  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
-.segment-card .segment-actions {
+.regions-table tbody tr {
+  cursor: pointer;
+}
+
+.regions-table tbody tr:hover {
+  background: rgba(91, 141, 239, 0.08);
+}
+
+.regions-table tbody tr.is-selected {
+  background: rgba(91, 141, 239, 0.16);
+}
+
+.regions-table tbody tr.is-overlap-warning {
+  background: rgba(234, 179, 8, 0.18);
+}
+
+.regions-table tbody tr.is-playing td:first-child {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.region-label-select {
+  font-size: 0.85rem;
+}
+
+.region-label-select[data-label="healthy"] {
+  border-color: var(--healthy);
+}
+
+.region-label-select[data-label="defective"] {
+  border-color: var(--defective);
+}
+
+.region-label-select[data-label="skip"] {
+  border-color: var(--unlabeled);
+}
+
+.region-actions {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
 
-.segment-card .play-button {
+.region-actions .play-button {
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
 }
 
-.label-toggle {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-  flex: 1;
+.region-actions .remove-button {
+  margin-top: 0;
+  padding: 0.3rem 0.55rem;
+  color: var(--defective);
+  border-color: var(--defective);
 }
 
-.label-toggle button {
-  flex: 1;
-  background: var(--bg);
-  color: var(--muted);
-  border-radius: 0;
-  font-size: 0.75rem;
-  padding: 0.35rem 0.3rem;
-}
-
-.label-toggle button.selected[data-label="healthy"] {
-  background: var(--healthy);
-  color: #06231a;
-}
-
-.label-toggle button.selected[data-label="defective"] {
-  background: var(--defective);
-  color: #2b0505;
-}
-
-.label-toggle button.selected[data-label="unlabeled"] {
-  background: var(--unlabeled);
-  color: #12141a;
+#regions-empty-hint {
+  text-align: center;
+  padding: 1rem 0 0.25rem;
 }
 
 .train-log {
@@ -581,19 +644,21 @@ textarea {
 }
 
 .modal-summary {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.3rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   margin: 0 0 1rem;
+  font-size: 0.9rem;
 }
 
-.modal-summary dt {
-  color: var(--muted);
-}
-
-.modal-summary dd {
+.modal-summary p {
   margin: 0;
-  font-variant-numeric: tabular-nums;
+}
+
+.modal-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: -0.4rem 0 1rem;
 }
 
 .modal-metadata {

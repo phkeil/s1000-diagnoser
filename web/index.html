@@ -98,65 +98,72 @@
         </details>
       </form>
 
-      <div id="waveform-panel" class="waveform-panel" hidden>
-        <div id="waveform"></div>
-        <div class="waveform-controls">
-          <button id="play-all-button" type="button">Play from start</button>
+      <div id="audio-workspace" class="audio-workspace" hidden>
+        <div class="zoom-control">
+          <label for="zoom-slider">Zoom</label>
+          <input id="zoom-slider" type="range" min="0" max="500" step="10" value="0" />
+        </div>
+
+        <div class="transport-bar">
+          <button type="button" id="transport-restart-button" aria-label="Back to start">◀◀</button>
+          <button type="button" id="transport-play-button" aria-label="Play">▶</button>
+          <span id="transport-time" class="status-text">00:00.0 / 00:00.0</span>
+        </div>
+
+        <p class="waveform-hint">Drag on the waveform to draw a region, then label it below. Double-click a region to play it.</p>
+
+        <div id="audio-panel" class="audio-panel">
+          <div id="overlap-toast" class="overlap-toast" role="status"></div>
+          <div id="waveform"></div>
+          <div id="spectrogram-panel" class="spectrogram-panel">
+            <div id="spectrogram-inner" class="spectrogram-inner">
+              <img id="spectrogram-image" class="spectrogram-image" alt="Full-file mel spectrogram" />
+              <button type="button" id="spectrogram-retry" class="spectrogram-retry">↺ Retry loading spectrogram</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div id="segments-panel" class="segments-panel" hidden>
-        <div class="segments-sticky-stack">
-          <div id="bulk-actions-bar" class="bulk-actions-bar">
-            <div class="bulk-group">
-              <span class="bulk-label">Label all:</span>
-              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="healthy">Healthy</button>
-              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="defective">Defective</button>
-              <button type="button" class="bulk-button" data-bulk-scope="all" data-label="unlabeled">Skip</button>
-            </div>
-            <div class="bulk-group">
-              <span class="bulk-label">Label unlabeled:</span>
-              <button type="button" class="bulk-button" data-bulk-scope="unlabeled" data-label="healthy">Healthy</button>
-              <button type="button" class="bulk-button" data-bulk-scope="unlabeled" data-label="defective">Defective</button>
-            </div>
-            <div class="bulk-group filter-group" role="group" aria-label="Filter segments">
-              <span class="bulk-label">Filter:</span>
-              <button type="button" class="filter-button active" data-filter="all">All</button>
-              <button type="button" class="filter-button" data-filter="unlabeled">Unlabeled</button>
-              <button type="button" class="filter-button" data-filter="healthy">Healthy</button>
-              <button type="button" class="filter-button" data-filter="defective">Defective</button>
-            </div>
-            <div class="bulk-group progress-group">
-              <span id="bulk-progress" class="status-text"></span>
-            </div>
-            <div class="bulk-group confirm-group">
-              <button id="confirm-button" type="button" disabled>Confirm labels</button>
-              <span id="confirm-status" class="status-text" role="status"></span>
-            </div>
-          </div>
-
+      <div id="regions-panel" class="regions-panel" hidden>
+        <div class="regions-sticky-stack">
           <div id="session-header" class="session-header">
             <span id="session-filename" class="session-item"></span>
             <span id="session-domain" class="session-item"></span>
             <span id="session-bike" class="session-item"></span>
-            <span id="session-progress" class="session-item session-progress"></span>
           </div>
 
           <details class="shortcuts-legend">
-            <summary>⌨ Shortcuts</summary>
+            <summary>Shortcuts</summary>
             <ul>
-              <li><kbd>H</kbd> label focused/hovered segment Healthy</li>
-              <li><kbd>D</kbd> label focused/hovered segment Defective</li>
-              <li><kbd>S</kbd> skip focused/hovered segment</li>
-              <li><kbd>Space</kbd> play/stop focused segment</li>
-              <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> move between segments</li>
-              <li><kbd>Shift</kbd>+<kbd>H</kbd> label all unlabeled Healthy</li>
-              <li><kbd>Shift</kbd>+<kbd>D</kbd> label all unlabeled Defective</li>
+              <li><kbd>H</kbd> label selected region Healthy</li>
+              <li><kbd>D</kbd> label selected region Defective</li>
+              <li><kbd>S</kbd> skip selected region</li>
+              <li><kbd>Space</kbd> play/stop selected region</li>
+              <li><kbd>Delete</kbd> remove selected region</li>
+              <li><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> select next/previous region</li>
             </ul>
           </details>
+
+          <div id="regions-actions-bar" class="regions-actions-bar">
+            <button id="confirm-button" type="button" disabled>Confirm labels</button>
+            <span id="confirm-status" class="status-text" role="status"></span>
+          </div>
         </div>
 
-        <div id="segments-grid" class="segments-grid"></div>
+        <table class="regions-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Duration</th>
+              <th>Label</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="regions-tbody"></tbody>
+        </table>
+        <p id="regions-empty-hint" class="status-text">Draw a region on the waveform above to get started.</p>
       </div>
     </section>
 
@@ -182,7 +189,8 @@
   <div id="confirm-modal" class="modal-overlay" hidden>
     <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
       <h2 id="confirm-modal-title">Ready to save to manifest</h2>
-      <dl class="modal-summary" id="confirm-modal-breakdown"></dl>
+      <div class="modal-summary" id="confirm-modal-breakdown"></div>
+      <p class="modal-note">Regions shorter than 1.0s will produce 0 segments and be skipped.</p>
       <div class="modal-metadata" id="confirm-modal-metadata"></div>
       <span id="confirm-modal-error" class="modal-error" role="alert" hidden></span>
       <div class="modal-actions">

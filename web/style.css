@@ -683,3 +683,183 @@ textarea {
   justify-content: flex-end;
   gap: 0.6rem;
 }
+
+/* ---------------------------------------------------------------------------
+   Diagnose tab
+   --------------------------------------------------------------------------- */
+
+.diagnose-results {
+  margin-bottom: 1rem;
+}
+
+.diagnose-results .session-header {
+  padding: 0 0 0.6rem;
+}
+
+/* One unified box holding the two scroll viewports, same idea as .audio-panel
+   on the label tab. Both viewports are exactly this box's inner width, which
+   is what lets a shared scrollLeft mean the same moment in time in both -
+   see web/js/diagnose.js. */
+.diagnose-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diagnose-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* The spectrogram viewport reuses .spectrogram-panel for its shimmer/error
+   states; it's the first row here, so it gets no top border of its own. */
+.diagnose-panel .spectrogram-panel {
+  border-top: none;
+}
+
+.diagnose-graph-scroll {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.diagnose-graph {
+  display: block;
+  height: 180px;
+}
+
+.diagnose-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.diagnose-axis-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.diagnose-axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.diagnose-axis-label-y {
+  text-anchor: end;
+}
+
+.diagnose-axis-label-x {
+  text-anchor: middle;
+}
+
+.diagnose-score-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.diagnose-area {
+  stroke: none;
+}
+
+.diagnose-area-healthy {
+  fill: rgba(91, 141, 239, 0.22);
+}
+
+.diagnose-area-anomaly {
+  fill: rgba(242, 84, 91, 0.28);
+}
+
+.diagnose-threshold-line {
+  stroke: var(--defective);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.diagnose-threshold-label {
+  fill: var(--defective);
+  text-anchor: start;
+}
+
+.diagnose-dot {
+  fill: var(--accent);
+}
+
+.diagnose-dot.is-anomaly {
+  fill: var(--defective);
+}
+
+/* Invisible full-height column per segment: carries the <title> tooltip and
+   gives the pointer a real target, instead of a 2px dot. */
+.diagnose-hover-band {
+  fill: transparent;
+}
+
+.diagnose-hover-band:hover {
+  fill: rgba(230, 232, 239, 0.07);
+}
+
+.diagnose-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+.diagnose-summary:empty {
+  display: none;
+}
+
+.diagnose-summary.is-pending {
+  color: var(--muted);
+}
+
+.diagnose-summary.is-healthy {
+  border-left-color: var(--healthy);
+}
+
+.diagnose-summary.is-anomaly {
+  border-left-color: var(--defective);
+}
+
+.diagnose-summary-verdict {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.diagnose-summary.is-healthy .diagnose-summary-verdict {
+  color: var(--healthy);
+}
+
+.diagnose-summary.is-anomaly .diagnose-summary-verdict {
+  color: var(--defective);
+}
+
+.diagnose-table {
+  margin-top: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnose-table tbody tr.is-anomaly {
+  background: rgba(242, 84, 91, 0.12);
+}
+
+.diagnose-table tbody tr.is-anomaly:hover {
+  background: rgba(242, 84, 91, 0.2);
+}
+
+.diagnose-verdict-healthy {
+  color: var(--healthy);
+}
+
+.diagnose-verdict-anomaly {
+  color: var(--defective);
+}

@@ -1,4 +1,7 @@
-// Thin fetch wrappers for every endpoint api/labeling.py exposes.
+// Thin fetch wrappers for every endpoint the tool app exposes - api/labeling.py's
+// (upload/spectrogram/confirm/train) and api/inference_tab.py's read-only
+// /diagnose/* trio. Those two routers stay fully decoupled server-side; sharing
+// one HTTP helper here is purely so error handling is written once.
 
 async function readErrorDetail(response) {
   try {
@@ -64,4 +67,26 @@ export async function startTraining(epochs, runName) {
 
 export async function getTrainingJob(jobId) {
   return requestJson(`/train/${encodeURIComponent(jobId)}`);
+}
+
+// --- Diagnose tab (api/inference_tab.py) - read-only, never writes to the
+// manifest. Deliberately a separate upload endpoint from uploadFile() above:
+// the server keeps the two session stores apart, so an upload_id from one is
+// meaningless to the other.
+
+export async function uploadForDiagnosis(file, domain) {
+  const form = new FormData();
+  form.append("file", file);
+  if (domain) {
+    form.append("domain", domain);
+  }
+  return requestJson("/diagnose/uploads", { method: "POST", body: form });
+}
+
+export async function getDiagnoseResults(uploadId) {
+  return requestJson(`/diagnose/${encodeURIComponent(uploadId)}/results`);
+}
+
+export function diagnoseSpectrogramUrl(uploadId) {
+  return `/diagnose/${encodeURIComponent(uploadId)}/spectrogram`;
 }

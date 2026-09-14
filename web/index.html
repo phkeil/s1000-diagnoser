@@ -12,6 +12,7 @@
     <nav class="tabs">
       <button class="tab-button" data-tab="label" type="button">Label</button>
       <button class="tab-button" data-tab="train" type="button">Train</button>
+      <button class="tab-button" data-tab="diagnose" type="button">Diagnose</button>
     </nav>
   </header>
 
@@ -182,6 +183,61 @@
       <div id="train-metrics" class="train-metrics" hidden>
         <h2>Run metrics</h2>
         <dl id="train-metrics-list"></dl>
+      </div>
+    </section>
+
+    <section id="tab-diagnose" class="tab-panel" hidden>
+      <form id="diagnose-form">
+        <div class="upload-panel">
+          <div class="file-field">
+            <input id="diagnose-file-input" type="file" accept=".wav,.m4a" required class="file-input-native" />
+            <label for="diagnose-file-input" class="file-input-button">Choose file</label>
+            <span id="diagnose-file-name" class="file-input-filename">No file chosen</span>
+          </div>
+          <label for="diagnose-domain-select">Domain</label>
+          <select id="diagnose-domain-select">
+            <option value="">Auto-detect</option>
+            <option value="Garage">Garage</option>
+            <option value="YouTube">YouTube</option>
+          </select>
+          <button id="diagnose-button" type="submit">Analyze recording</button>
+          <span id="diagnose-status" class="status-text" role="status"></span>
+        </div>
+      </form>
+
+      <div id="diagnose-results" class="diagnose-results" hidden>
+        <div id="diagnose-file-header" class="session-header"></div>
+
+        <!-- Spectrogram and score graph are two scroll viewports of equal width
+             holding equal-width content, kept in lockstep by scrollLeft - that,
+             plus the shared left/right gutters, is what makes a given x position
+             the same moment in time in both. See web/js/diagnose.js. -->
+        <div class="diagnose-panel">
+          <div id="diagnose-spectrogram-scroll" class="diagnose-scroll spectrogram-panel">
+            <div id="diagnose-spectrogram-inner" class="spectrogram-inner">
+              <img id="diagnose-spectrogram-image" class="spectrogram-image" alt="Full-file mel spectrogram" />
+            </div>
+          </div>
+          <div id="diagnose-graph-scroll" class="diagnose-scroll diagnose-graph-scroll">
+            <svg id="diagnose-graph" class="diagnose-graph" role="img" aria-label="Anomaly score over time"></svg>
+          </div>
+        </div>
+
+        <div id="diagnose-summary" class="diagnose-summary"></div>
+
+        <table class="regions-table diagnose-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Score</th>
+              <th>Verdict</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody id="diagnose-tbody"></tbody>
+        </table>
       </div>
     </section>
   </main>

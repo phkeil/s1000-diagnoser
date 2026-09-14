@@ -34,6 +34,14 @@ class ThresholdSet:
     run_id: Optional[str]
     computed_at: str
     val_segment_counts: Dict[str, int]
+    # Median of the same pooled, domain-normalized healthy val scores
+    # rel_threshold's percentile was taken from - the "typical healthy"
+    # anchor src/inference.py's anomaly_confidence() sigmoid is scaled
+    # against. A thresholds.json written before this field existed will
+    # KeyError in from_dict() below, which every caller already treats as
+    # "no thresholds available" and falls back to config.yaml's default -
+    # the same graceful-degradation path a missing file takes.
+    healthy_median_score: float
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -46,6 +54,7 @@ class ThresholdSet:
             run_id=data.get("run_id"),
             computed_at=data["computed_at"],
             val_segment_counts=dict(data["val_segment_counts"]),
+            healthy_median_score=data["healthy_median_score"],
         )
 
 
@@ -91,6 +100,7 @@ def compute_thresholds(
         score / domain_baselines[domain] for domain, scores in raw_scores_by_domain.items() for score in scores
     ]
     rel_threshold = float(np.percentile(normalized_scores, percentile))
+    healthy_median_score = float(np.median(normalized_scores))
 
     return ThresholdSet(
         rel_threshold=rel_threshold,
@@ -98,6 +108,7 @@ def compute_thresholds(
         run_id=run_id,
         computed_at=datetime.now(timezone.utc).isoformat(),
         val_segment_counts=val_segment_counts,
+        healthy_median_score=healthy_median_score,
     )
 
 
@@ -144,5 +155,10 @@ def apply_thresholds(cfg: Config, thresholds: ThresholdSet) -> Config:
     of disappearing from the dict entirely.
     """
     merged_baselines = {**cfg.anomaly.domain_baselines, **thresholds.domain_baselines}
-    new_anomaly = replace(cfg.anomaly, rel_threshold=thresholds.rel_threshold, domain_baselines=merged_baselines)
+    new_anomaly = replace(
+        cfg.anomaly,
+        rel_threshold=thresholds.rel_threshold,
+        domain_baselines=merged_baselines,
+        healthy_median_score=thresholds.healthy_median_score,
+    )
     return replace(cfg, anomaly=new_anomaly)

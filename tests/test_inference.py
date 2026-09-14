@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from src.inference import (
+    anomaly_confidence,
     infer_domain,
     load_model,
     reconstruction_error,
@@ -67,6 +68,8 @@ def test_score_segments_flags_a_sustained_anomaly_above_threshold(cfg):
 
     assert result.is_anomalous is True
     assert all(s.is_anomalous for s in result.segments)
+    assert all(s.confidence > 0.5 for s in result.segments)
+    assert result.max_confidence > 0.5
 
 
 def test_score_segments_all_healthy_scores_are_not_anomalous(cfg):
@@ -78,6 +81,35 @@ def test_score_segments_all_healthy_scores_are_not_anomalous(cfg):
 
     assert result.is_anomalous is False
     assert all(not s.is_anomalous for s in result.segments)
+    assert all(s.confidence < 0.5 for s in result.segments)
+    assert result.max_confidence < 0.5
+
+
+def test_anomaly_confidence_crosses_one_half_exactly_at_the_threshold():
+    assert anomaly_confidence(smoothed_score=2.5, threshold=2.5, healthy_median_score=1.0) == pytest.approx(0.5)
+
+
+def test_anomaly_confidence_reads_low_but_nonzero_at_the_healthy_median():
+    confidence = anomaly_confidence(smoothed_score=1.0, threshold=2.5, healthy_median_score=1.0)
+
+    assert confidence == pytest.approx(0.05, abs=1e-9)
+
+
+def test_anomaly_confidence_is_bounded_and_monotonic_in_the_score():
+    threshold, healthy_median_score = 2.5, 1.0
+    scores = [-5.0, 0.0, 1.0, 2.0, 2.5, 3.0, 10.0, 1000.0]
+
+    confidences = [anomaly_confidence(s, threshold, healthy_median_score) for s in scores]
+
+    assert all(0.0 <= c <= 1.0 for c in confidences)
+    assert confidences == sorted(confidences)  # strictly monotonic increasing in smoothed_score
+
+
+def test_anomaly_confidence_never_overflows_on_pathological_inputs():
+    # threshold <= healthy_median_score would otherwise divide by a
+    # non-positive spread - must not raise, and must still return in [0, 1].
+    assert 0.0 <= anomaly_confidence(smoothed_score=1e6, threshold=1.0, healthy_median_score=1.0) <= 1.0
+    assert 0.0 <= anomaly_confidence(smoothed_score=-1e6, threshold=1.0, healthy_median_score=1.0) <= 1.0
 
 
 def test_score_audio_file_end_to_end_with_synthetic_checkpoint(sine_wave_audio_file, synthetic_model, cfg, device):
@@ -88,6 +120,7 @@ def test_score_audio_file_end_to_end_with_synthetic_checkpoint(sine_wave_audio_f
         assert math.isfinite(segment.raw_score)
         assert math.isfinite(segment.relative_score)
         assert math.isfinite(segment.smoothed_score)
+        assert 0.0 <= segment.confidence <= 1.0
         assert isinstance(segment.is_anomalous, bool)
 
 

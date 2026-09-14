@@ -106,6 +106,7 @@ def test_train_smoke_logs_expected_mlflow_metrics_and_artifact(tmp_path):
         "train_mse_loss",
         "val_mse_loss",
         "rel_threshold",
+        "healthy_median_score",
         "baseline_garage",
         "baseline_youtube",
         "final_val_mse_loss",

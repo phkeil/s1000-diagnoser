@@ -58,6 +58,7 @@ def _make_threshold_set(**overrides):
         run_id="run-abc",
         computed_at="2024-01-01T00:00:00+00:00",
         val_segment_counts={"Garage": 10, "YouTube": 12},
+        healthy_median_score=1.0,
     )
     defaults.update(overrides)
     return ThresholdSet(**defaults)
@@ -79,6 +80,7 @@ def test_compute_thresholds_returns_correct_domains_and_percentile():
     assert thresholds.domain_baselines["Garage"] == pytest.approx(1.0)
     assert thresholds.domain_baselines["YouTube"] == pytest.approx(4.0)
     assert thresholds.rel_threshold == pytest.approx(1.0)
+    assert thresholds.healthy_median_score == pytest.approx(1.0)
     assert thresholds.val_segment_counts == {"Garage": 3, "YouTube": 3}
     assert thresholds.run_id == "run-1"
 
@@ -99,6 +101,7 @@ def test_compute_thresholds_percentile_reflects_score_spread():
     normalized_scores = [v**2 / baseline for v in values]
     expected = np.percentile(normalized_scores, 90.0)
     assert thresholds.rel_threshold == pytest.approx(expected)
+    assert thresholds.healthy_median_score == pytest.approx(np.median(normalized_scores))
 
 
 def test_threshold_set_round_trips_through_dict_exactly():
@@ -145,10 +148,12 @@ def test_load_thresholds_from_mlflow_run_returns_none_on_any_mlflow_error(monkey
 def test_apply_thresholds_returns_new_config_without_mutating_the_original(cfg):
     original_rel_threshold = cfg.anomaly.rel_threshold
     original_baselines = dict(cfg.anomaly.domain_baselines)
+    original_healthy_median_score = cfg.anomaly.healthy_median_score
 
     thresholds = _make_threshold_set(
         rel_threshold=original_rel_threshold + 10,
         domain_baselines={"Garage": 999.0},
+        healthy_median_score=original_healthy_median_score + 1,
     )
 
     result = apply_thresholds(cfg, thresholds)
@@ -156,8 +161,10 @@ def test_apply_thresholds_returns_new_config_without_mutating_the_original(cfg):
     assert id(result) != id(cfg)
     assert cfg.anomaly.rel_threshold == original_rel_threshold
     assert cfg.anomaly.domain_baselines == original_baselines
+    assert cfg.anomaly.healthy_median_score == original_healthy_median_score
 
     assert result.anomaly.rel_threshold == pytest.approx(original_rel_threshold + 10)
     assert result.anomaly.domain_baselines["Garage"] == 999.0
     # YouTube wasn't in the applied ThresholdSet - it must fall back to cfg's own value.
     assert result.anomaly.domain_baselines["YouTube"] == original_baselines["YouTube"]
+    assert result.anomaly.healthy_median_score == pytest.approx(original_healthy_median_score + 1)

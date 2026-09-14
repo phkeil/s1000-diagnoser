@@ -47,3 +47,9 @@ anomaly:
   garage_name_hints: [Andre, Maximilian, Philip]
   rel_threshold: 2.5
   window_size: 4       # rolling-mean smoothing window, in segments
+  # "typical healthy" anchor for the anomaly-confidence sigmoid (src/inference.py's
+  # anomaly_confidence()). A domain-normalized score is, by construction, centered
+  # near 1.0 for a healthy segment (the baseline itself is the mean healthy raw
+  # score) - this is only the last-resort default before any model has computed a
+  # real one from actual validation data (src/thresholds.py's compute_thresholds()).
+  healthy_median_score: 1.0

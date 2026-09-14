@@ -5,6 +5,7 @@ import pytest
 
 from src.manifest import (
     ManifestSegment,
+    SourceFileMetadata,
     add_segment,
     assign_pending_splits,
     bulk_add_segments,
@@ -60,6 +61,54 @@ def test_get_or_create_source_file_returns_same_id_on_second_call(conn):
     second_id = get_or_create_source_file(conn, "data/raw/example.m4a", "YouTube")
 
     assert first_id == second_id
+
+
+def test_get_or_create_source_file_persists_optional_metadata(conn):
+    metadata = SourceFileMetadata(
+        contributor="Philip",
+        recording_device="iPhone 13",
+        original_codec="wav",
+        exhaust_system="Akrapovic",
+        model_year=2015,
+        kilometers_on_bike=42000.5,
+        oil_type="10W-40 full synthetic",
+        kilometers_since_last_oilchange=1200.0,
+        known_issues="faint rattle at idle",
+        notes="recorded after a cold start",
+    )
+
+    source_file_id = get_or_create_source_file(conn, "data/raw/with_metadata.wav", "Garage", metadata=metadata)
+
+    row = conn.execute("SELECT * FROM source_files WHERE id = ?", (source_file_id,)).fetchone()
+    assert row["contributor"] == "Philip"
+    assert row["recording_device"] == "iPhone 13"
+    assert row["original_codec"] == "wav"
+    assert row["exhaust_system"] == "Akrapovic"
+    assert row["model_year"] == 2015
+    assert row["kilometers_on_bike"] == 42000.5
+    assert row["oil_type"] == "10W-40 full synthetic"
+    assert row["kilometers_since_last_oilchange"] == 1200.0
+    assert row["known_issues"] == "faint rattle at idle"
+    assert row["notes"] == "recorded after a cold start"
+
+
+def test_get_or_create_source_file_defaults_metadata_to_all_none(conn):
+    source_file_id = _make_source_file(conn, path="data/raw/no_metadata.m4a")
+
+    row = conn.execute("SELECT * FROM source_files WHERE id = ?", (source_file_id,)).fetchone()
+    for column in (
+        "contributor",
+        "recording_device",
+        "original_codec",
+        "exhaust_system",
+        "model_year",
+        "kilometers_on_bike",
+        "oil_type",
+        "kilometers_since_last_oilchange",
+        "known_issues",
+        "notes",
+    ):
+        assert row[column] is None
 
 
 def test_add_segment_raises_on_duplicate_start_time(conn):

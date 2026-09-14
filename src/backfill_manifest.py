@@ -20,7 +20,7 @@ from typing import Dict, Optional, Tuple
 
 from src.config import Config, load_config
 from src.inference import infer_domain
-from src.manifest import add_segment, get_connection, get_or_create_source_file, init_db
+from src.manifest import SourceFileMetadata, add_segment, get_connection, get_or_create_source_file, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,10 @@ def backfill(cfg: Config, manifest_db_path: Path) -> Dict[str, int]:
 
             if raw_relative_path not in source_file_cache:
                 domain = infer_domain(stem, cfg)
-                source_file_id = get_or_create_source_file(conn, raw_relative_path, domain)
+                original_codec = raw_audio_path.suffix.lower().lstrip(".")
+                source_file_id = get_or_create_source_file(
+                    conn, raw_relative_path, domain, metadata=SourceFileMetadata(original_codec=original_codec)
+                )
                 source_file_cache[raw_relative_path] = (source_file_id, domain)
                 source_files_registered += 1
 

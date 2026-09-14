@@ -64,11 +64,22 @@ def test_predict_with_valid_wav_returns_200_and_prediction_schema(client, sine_w
     assert response.status_code == 200
     body = response.json()
 
-    assert set(body.keys()) == {"segment_scores", "relative_scores", "is_anomalous", "model_version"}
+    assert set(body.keys()) == {
+        "segment_scores",
+        "relative_scores",
+        "confidence_scores",
+        "overall_confidence",
+        "is_anomalous",
+        "model_version",
+    }
     assert len(body["segment_scores"]) > 0
-    assert len(body["segment_scores"]) == len(body["relative_scores"])
+    assert len(body["segment_scores"]) == len(body["relative_scores"]) == len(body["confidence_scores"])
     assert all(isinstance(s, (int, float)) for s in body["segment_scores"])
     assert all(isinstance(s, (int, float)) for s in body["relative_scores"])
+    assert all(isinstance(s, (int, float)) and 0.0 <= s <= 1.0 for s in body["confidence_scores"])
+    assert isinstance(body["overall_confidence"], (int, float))
+    assert 0.0 <= body["overall_confidence"] <= 1.0
+    assert body["overall_confidence"] == max(body["confidence_scores"])
     assert isinstance(body["is_anomalous"], bool)
     assert body["model_version"] == FAKE_MODEL_VERSION
 
@@ -133,6 +144,7 @@ def test_resolve_model_local_checkpoint_path_applies_sibling_thresholds(
         run_id=None,
         computed_at="2024-01-01T00:00:00+00:00",
         val_segment_counts={"Garage": 10, "YouTube": 12},
+        healthy_median_score=cfg.anomaly.healthy_median_score + 1,
     )
     save_thresholds_locally(thresholds, str(synthetic_checkpoint_path.parent / "thresholds.json"))
 
@@ -142,6 +154,7 @@ def test_resolve_model_local_checkpoint_path_applies_sibling_thresholds(
 
     assert state.cfg.anomaly.rel_threshold == thresholds.rel_threshold
     assert state.cfg.anomaly.domain_baselines["Garage"] == 123.0
+    assert state.cfg.anomaly.healthy_median_score == thresholds.healthy_median_score
 
 
 def test_resolve_model_local_checkpoint_path_falls_back_to_config_default_without_thresholds_file(
@@ -156,6 +169,7 @@ def test_resolve_model_local_checkpoint_path_falls_back_to_config_default_withou
 
     assert state.cfg.anomaly.rel_threshold == cfg.anomaly.rel_threshold
     assert state.cfg.anomaly.domain_baselines == cfg.anomaly.domain_baselines
+    assert state.cfg.anomaly.healthy_median_score == cfg.anomaly.healthy_median_score
 
 
 def test_resolve_model_mlflow_path_applies_thresholds_when_available(monkeypatch, cfg, synthetic_model, device):
@@ -168,6 +182,7 @@ def test_resolve_model_mlflow_path_applies_thresholds_when_available(monkeypatch
         run_id="run-123",
         computed_at="2024-01-01T00:00:00+00:00",
         val_segment_counts={"Garage": 1, "YouTube": 1},
+        healthy_median_score=cfg.anomaly.healthy_median_score + 1,
     )
     monkeypatch.setattr(api_main, "load_thresholds_from_mlflow_run", lambda run_id: thresholds)
 
@@ -175,6 +190,7 @@ def test_resolve_model_mlflow_path_applies_thresholds_when_available(monkeypatch
 
     assert state.cfg.anomaly.rel_threshold == thresholds.rel_threshold
     assert state.cfg.anomaly.domain_baselines["Garage"] == 1.0
+    assert state.cfg.anomaly.healthy_median_score == thresholds.healthy_median_score
 
 
 def test_resolve_model_mlflow_path_falls_back_to_config_default_when_thresholds_unavailable(
@@ -188,3 +204,4 @@ def test_resolve_model_mlflow_path_falls_back_to_config_default_when_thresholds_
 
     assert state.cfg.anomaly.rel_threshold == cfg.anomaly.rel_threshold
     assert state.cfg.anomaly.domain_baselines == cfg.anomaly.domain_baselines
+    assert state.cfg.anomaly.healthy_median_score == cfg.anomaly.healthy_median_score

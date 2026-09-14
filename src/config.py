@@ -58,6 +58,7 @@ class AnomalyConfig:
     garage_name_hints: List[str]
     rel_threshold: float
     window_size: int
+    healthy_median_score: float
 
 
 @dataclass

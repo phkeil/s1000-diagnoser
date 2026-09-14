@@ -20,7 +20,15 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+# v2 added source_files' descriptive metadata columns (contributor,
+# recording_device, ... - see SourceFileMetadata below). v3 added bike_model
+# (the community data-collection form's "Motorrad-Modell" field). v1 -> v2
+# never needed a real migration (no v1 database was ever populated outside
+# of tests), but a real v2 manifest.db now exists with labeled segments in
+# it - see _migrate_v2_to_v3 below - so from v3 onward a new nullable column
+# gets a proper ALTER TABLE instead of assuming CREATE TABLE IF NOT EXISTS
+# alone is enough.
+SCHEMA_VERSION = 3
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS source_files (
@@ -30,6 +38,17 @@ CREATE TABLE IF NOT EXISTS source_files (
     domain TEXT NOT NULL CHECK(domain IN ('Garage','YouTube')),
     sample_rate INTEGER,
     duration_seconds REAL,
+    bike_model TEXT,
+    contributor TEXT,
+    recording_device TEXT,
+    original_codec TEXT,
+    exhaust_system TEXT,
+    model_year INTEGER,
+    kilometers_on_bike REAL,
+    oil_type TEXT,
+    kilometers_since_last_oilchange REAL,
+    known_issues TEXT,
+    notes TEXT,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -73,6 +92,35 @@ class ManifestSegment:
     rendered_png_path: Optional[str]
 
 
+@dataclass
+class SourceFileMetadata:
+    """Optional descriptive metadata about a source recording - who
+    contributed it and what state the bike/consumables were in, plus (for a
+    manual upload) the container format it originally arrived in.
+
+    Every field is nullable by design: a crawler-downloaded YouTube clip
+    (Phase 3) isn't the crawler operator's own bike, so only original_codec
+    (and maybe notes, e.g. the source video's title) will ever be populated
+    for those rows - contributor/exhaust_system/oil_type/etc. simply stay
+    NULL rather than being guessed at.
+
+    exhaust_system is NULL for a bike's original/stock exhaust; a non-NULL
+    value names the aftermarket system fitted instead.
+    """
+
+    bike_model: Optional[str] = None
+    contributor: Optional[str] = None
+    recording_device: Optional[str] = None
+    original_codec: Optional[str] = None
+    exhaust_system: Optional[str] = None
+    model_year: Optional[int] = None
+    kilometers_on_bike: Optional[float] = None
+    oil_type: Optional[str] = None
+    kilometers_since_last_oilchange: Optional[float] = None
+    known_issues: Optional[str] = None
+    notes: Optional[str] = None
+
+
 def get_connection(db_path: str) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,10 +140,25 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Adds source_files.bike_model to an existing v2 database. A plain
+    ALTER TABLE ADD COLUMN is enough - the column is nullable, so every
+    existing row just gets NULL, no backfill needed. Guarded by a
+    table_info check so re-running it (e.g. two confirms racing on the same
+    fresh-ish db) is a no-op rather than an error."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(source_files)")}
+    if "bike_model" not in columns:
+        conn.execute("ALTER TABLE source_files ADD COLUMN bike_model TEXT")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Idempotent - safe to call on every connection open."""
     conn.executescript(_SCHEMA_SQL)
-    if conn.execute("PRAGMA user_version").fetchone()[0] == 0:
+    current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current_version == 0:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    elif current_version == 2:
+        _migrate_v2_to_v3(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -107,19 +170,45 @@ def get_or_create_source_file(
     source_url: Optional[str] = None,
     sample_rate: Optional[int] = None,
     duration_seconds: Optional[float] = None,
+    metadata: Optional[SourceFileMetadata] = None,
 ) -> int:
+    """metadata is only ever consulted the first time file_path is seen - an
+    existing row's descriptive metadata isn't updated on a later call, same
+    as its source_url/sample_rate/duration_seconds today."""
     existing = conn.execute(
         "SELECT id FROM source_files WHERE file_path = ?", (file_path,)
     ).fetchone()
     if existing is not None:
         return existing["id"]
 
+    metadata = metadata or SourceFileMetadata()
     cur = conn.execute(
         """
-        INSERT INTO source_files (file_path, source_url, domain, sample_rate, duration_seconds)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO source_files (
+            file_path, source_url, domain, sample_rate, duration_seconds,
+            bike_model, contributor, recording_device, original_codec, exhaust_system,
+            model_year, kilometers_on_bike, oil_type, kilometers_since_last_oilchange,
+            known_issues, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (file_path, source_url, domain, sample_rate, duration_seconds),
+        (
+            file_path,
+            source_url,
+            domain,
+            sample_rate,
+            duration_seconds,
+            metadata.bike_model,
+            metadata.contributor,
+            metadata.recording_device,
+            metadata.original_codec,
+            metadata.exhaust_system,
+            metadata.model_year,
+            metadata.kilometers_on_bike,
+            metadata.oil_type,
+            metadata.kilometers_since_last_oilchange,
+            metadata.known_issues,
+            metadata.notes,
+        ),
     )
     conn.commit()
     return cur.lastrowid

@@ -139,11 +139,14 @@ async function handleAnalyze(event) {
 }
 
 function resetResultsPanel() {
+  resultsPanel.hidden = true;
+  spectrogramScroll.scrollLeft = 0;
+  graphScroll.scrollLeft = 0;
   currentResults = null;
   graphSvg.replaceChildren();
   tbody.replaceChildren();
   summaryBar.textContent = "";
-  summaryBar.className = "diagnose-summary";
+  summaryBar.className = "diagnose-summary"
 }
 
 function setLoadingPlaceholder() {

@@ -491,7 +491,14 @@ function buildSegmentRow(segment) {
   );
 
   // Brings this segment's moment into view in both panels at once.
+  row.tabIndex = 0;
   row.addEventListener("click", () => scrollToTime(segment.start_time));
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      scrollToTime(segment.start_time);
+    }
+  });
 
   return row;
 }

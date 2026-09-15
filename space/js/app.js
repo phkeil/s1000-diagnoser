@@ -30,7 +30,22 @@ const state = {
   ortReady: false,
   busy: false,
   run: null,
+  boot: {
+    loaded: 0, // model bytes received
+    total: 0, // model bytes expected; 0 until content-length is known
+    downloaded: false,
+    toolsStep: 0, // which of the Pyodide worker's boot steps is running
+    toolsSteps: 0,
+  },
 };
+
+// The two workers boot in parallel, so the bar is a weighted sum of both
+// rather than either one's own progress. The weights are roughly what each
+// part costs on a cold load: the 110 MB download dominates, building the
+// session is a few seconds, and the Python runtime comes up alongside them.
+const BOOT_WEIGHTS = { download: 0.7, session: 0.1, tools: 0.2 };
+
+const BYTES_PER_MB = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Worker plumbing
@@ -40,20 +55,25 @@ pyodideWorker.onmessage = (event) => {
   const message = event.data;
   switch (message.type) {
     case "status":
-      ui.setBootStatus("pyodide", message.detail);
+      // The worker's own wording names Pyodide and librosa, which the page
+      // deliberately does not; only its position in the sequence is used.
+      console.info("[pyodide]", message.detail);
+      state.boot.toolsStep = message.step || 0;
+      state.boot.toolsSteps = message.totalSteps || 0;
+      updateBootProgress();
       break;
     case "ready":
       state.config = message.config;
       state.versions = message.versions;
       state.pyodideReady = true;
-      ui.setBootStatus("pyodide", "Python ready (librosa " + message.versions.librosa + ")");
+      updateBootProgress();
       onWorkerReady();
       break;
     case "prepared":
       state.run.numSegments = message.numSegments;
       state.run.duration = message.duration;
       state.run.starts = message.starts;
-      ui.setAnalysisStatus("Rendering " + message.numSegments + " mel spectrograms…");
+      ui.setAnalysisStatus("Analyzing " + message.numSegments + " sections…");
       ui.beginResults({ duration: message.duration, domain: state.run.domain, filename: state.run.filename });
       break;
     case "spectrogram":
@@ -69,10 +89,10 @@ pyodideWorker.onmessage = (event) => {
       }
       break;
     case "progress":
-      ui.setProgress("Preprocessing", message.done, message.total);
+      ui.setProgress("Analyzing", message.done, message.total);
       break;
     case "error":
-      failRun(message.message);
+      reportError(message.message);
       break;
     default:
       break;
@@ -82,22 +102,31 @@ pyodideWorker.onmessage = (event) => {
 ortWorker.onmessage = (event) => {
   const message = event.data;
   switch (message.type) {
+    case "download":
+      state.boot.loaded = message.loaded;
+      state.boot.total = message.total;
+      updateBootProgress();
+      break;
+    case "downloaded":
+      state.boot.downloaded = true;
+      updateBootProgress();
+      break;
     case "ready":
       state.ortReady = true;
       state.provider = message.provider;
-      ui.setBootStatus("ort", "Model ready (" + message.provider + ")");
+      updateBootProgress();
       onWorkerReady();
       break;
     case "progress":
       state.run.scored = message.done;
-      ui.setProgress("Scoring", message.done, state.run.numSegments);
+      ui.setProgress("Running the diagnosis", message.done, state.run.numSegments);
       maybeFinalize();
       break;
     case "results":
       finishRun(message);
       break;
     case "error":
-      failRun(message.message);
+      reportError(message.message);
       break;
     default:
       break;
@@ -106,8 +135,74 @@ ortWorker.onmessage = (event) => {
 
 function onWorkerReady() {
   if (state.pyodideReady && state.ortReady) {
-    ui.setReady(state.versions, state.provider);
+    ui.setReady();
   }
+}
+
+// A step that is RUNNING is not a step that is done, so the Pyodide side
+// contributes (step - 1) / steps and only reaches its full weight on ready.
+// That keeps the bar from sitting at 100% while the last step still works.
+function toolsFraction() {
+  const { toolsStep, toolsSteps } = state.boot;
+  if (state.pyodideReady) {
+    return 1;
+  }
+  return toolsSteps ? Math.max(0, toolsStep - 1) / toolsSteps : 0;
+}
+
+function downloadFraction() {
+  const { loaded, total, downloaded } = state.boot;
+  if (downloaded) {
+    return 1;
+  }
+  return total ? Math.min(1, loaded / total) : null;
+}
+
+function formatMb(bytes) {
+  return Math.round(bytes / BYTES_PER_MB) + " MB";
+}
+
+function updateBootProgress() {
+  if (state.pyodideReady && state.ortReady) {
+    return;
+  }
+
+  const download = downloadFraction();
+  const fraction =
+    download === null
+      ? null
+      : BOOT_WEIGHTS.download * download +
+        BOOT_WEIGHTS.session * (state.ortReady ? 1 : 0) +
+        BOOT_WEIGHTS.tools * toolsFraction();
+
+  let message = "Getting ready…";
+  let detail = "This takes a moment the first time.";
+
+  if (!state.boot.downloaded && state.boot.loaded > 0) {
+    message = "Downloading the analyzer…";
+    detail = state.boot.total
+      ? formatMb(state.boot.loaded) + " of " + formatMb(state.boot.total)
+      : formatMb(state.boot.loaded) + " so far";
+  } else if (state.boot.downloaded && !state.ortReady) {
+    message = "Setting things up…";
+    detail = "Almost there.";
+  } else if (state.boot.downloaded) {
+    message = "Almost ready…";
+    detail = "";
+  }
+
+  ui.setBootProgress({ fraction, message, detail });
+}
+
+// A worker that dies before both are up means there is nothing to upload into,
+// so the page says so once instead of surfacing the worker's own message.
+function reportError(message) {
+  if (!state.pyodideReady || !state.ortReady) {
+    console.error("Analyzer failed to start:", message);
+    ui.setBootError();
+    return;
+  }
+  failRun(message);
 }
 
 // The ORT worker has no idea how many segments are coming, so the main thread
@@ -225,11 +320,11 @@ async function analyze(file, domainChoice) {
 
   const suffix = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
   if (!ALLOWED_SUFFIXES.includes(suffix)) {
-    ui.setAnalysisStatus("Unsupported file type '" + suffix + "'. Expected one of " + ALLOWED_SUFFIXES.join(", ") + ".", true);
+    ui.setAnalysisStatus("That file type can't be read. Please upload a .wav or .m4a recording.", true);
     return;
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    ui.setAnalysisStatus("File too large. Maximum size is 50 MB.", true);
+    ui.setAnalysisStatus("That recording is too long. Try a clip of about 15-30 seconds.", true);
     return;
   }
 
@@ -252,12 +347,13 @@ async function analyze(file, domainChoice) {
   };
 
   if (state.run.params.baseline === undefined) {
-    failRun("No healthy baseline configured for domain '" + domain + "'.");
+    console.error("No healthy baseline configured for domain '" + domain + "'.");
+    failRun("Something went wrong setting up the analysis. Try refreshing the page.");
     return;
   }
 
   try {
-    ui.setAnalysisStatus("Decoding audio…");
+    ui.setAnalysisStatus("Reading your recording…");
     const audio = await decodeAudio(file, state.config.audio.sample_rate);
 
     ortWorker.postMessage({ type: "reset" });
@@ -272,17 +368,21 @@ async function analyze(file, domainChoice) {
       [audio.buffer]
     );
   } catch (error) {
-    failRun("Could not decode audio file: " + ((error && error.message) || error));
+    console.error("Could not decode audio file:", error);
+    failRun("That recording couldn't be read. Try a different file.");
   }
 }
 
+// The timings and the execution provider are for the console, not the page:
+// the result the rider needs is the verdict, which ui.renderResults leads with.
 function finishRun(results) {
   const elapsed = (performance.now() - state.run.startedAt) / 1000;
-  ui.renderResults(results);
-  ui.setAnalysisStatus(
+  console.info(
     "Analyzed \"" + state.run.filename + "\" - " + results.segments.length + " segments in " +
     elapsed.toFixed(1) + "s (" + results.provider + ", " + Math.round(results.inference_ms) + "ms of inference)."
   );
+  ui.renderResults(results);
+  ui.setAnalysisStatus("Done, your result is below.");
   state.busy = false;
   ui.setBusy(false);
 }
@@ -302,7 +402,6 @@ ui.init({ onAnalyze: analyze });
 
 loadThresholds().then((thresholds) => {
   state.thresholds = thresholds;
-  ui.setThresholdSource(thresholds);
 });
 
 pyodideWorker.postMessage({ type: "init", baseUrl });

@@ -314,8 +314,14 @@ async function handleMessage(message) {
   }
 }
 
+// Boot has no measurable total the way a download does, so it reports which
+// of its four steps it is on and the page turns that into a fraction.
+const BOOT_STEPS = 4;
+let bootStep = 0;
+
 function report(stage, detail) {
-  self.postMessage({ type: "status", stage, detail });
+  bootStep += 1;
+  self.postMessage({ type: "status", stage, detail, step: bootStep, totalSteps: BOOT_STEPS });
 }
 
 async function fetchText(relativePath) {

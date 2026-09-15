@@ -1,5 +1,9 @@
-// DOM: boot status, upload form, spectrogram + time-aligned score graph,
-// verdict summary, per-segment table.
+// DOM: loading state, upload form, plain-language verdict, spectrogram +
+// time-aligned score graph, per-segment table.
+//
+// The page is written for a rider, not for a developer: the verdict leads, the
+// spectrogram and the per-segment numbers sit behind "what am I looking at?"
+// and "show details" toggles, and nothing on screen names a library.
 //
 // The graph and the time alignment are a port of web/js/diagnose.js, and the
 // geometry contract is the same one documented there:
@@ -43,17 +47,20 @@ let _scrollSyncing = false;
 let scrollSyncTimeoutId = null;
 
 export function init({ onAnalyze }) {
-  elements.bootPyodide = document.getElementById("boot-pyodide");
-  elements.bootOrt = document.getElementById("boot-ort");
+  elements.bootPanel = document.getElementById("boot-panel");
+  elements.bootMessage = document.getElementById("boot-message");
   elements.bootDetail = document.getElementById("boot-detail");
+  elements.bootBar = document.getElementById("boot-bar");
+  elements.bootBarFill = document.getElementById("boot-bar-fill");
   elements.form = document.getElementById("analyze-form");
   elements.fileInput = document.getElementById("file-input");
   elements.fileName = document.getElementById("file-name");
   elements.dropZone = document.getElementById("drop-zone");
-  elements.domainSelect = document.getElementById("domain-select");
+  elements.domainRadios = Array.from(document.querySelectorAll('input[name="domain"]'));
   elements.button = document.getElementById("analyze-button");
   elements.status = document.getElementById("analysis-status");
   elements.results = document.getElementById("results");
+  elements.verdict = document.getElementById("verdict");
   elements.fileHeader = document.getElementById("file-header");
   elements.spectrogramScroll = document.getElementById("spectrogram-scroll");
   elements.spectrogramInner = document.getElementById("spectrogram-inner");
@@ -70,11 +77,11 @@ export function init({ onAnalyze }) {
       setAnalysisStatus("Choose a file first.", true);
       return;
     }
-    onAnalyze(file, elements.domainSelect.value || undefined);
+    onAnalyze(file, selectedDomain());
   });
 
   elements.fileInput.addEventListener("change", () => {
-    elements.fileName.textContent = elements.fileInput.files[0]?.name || NO_FILE_TEXT;
+    showChosenFile(elements.fileInput.files[0]);
   });
 
   elements.dropZone.addEventListener("click", () => elements.fileInput.click());
@@ -89,7 +96,7 @@ export function init({ onAnalyze }) {
     const file = event.dataTransfer.files[0];
     if (file) {
       elements.fileInput.files = event.dataTransfer.files;
-      elements.fileName.textContent = file.name;
+      showChosenFile(file);
     }
   });
 
@@ -103,29 +110,55 @@ export function init({ onAnalyze }) {
   window.addEventListener("resize", relayout);
 }
 
+function showChosenFile(file) {
+  elements.fileName.textContent = file ? file.name : NO_FILE_TEXT;
+  elements.fileName.classList.toggle("has-file", Boolean(file));
+}
+
+function selectedDomain() {
+  return elements.domainRadios.find((radio) => radio.checked)?.value;
+}
+
 // ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
 
-export function setBootStatus(which, text) {
-  const target = which === "pyodide" ? elements.bootPyodide : elements.bootOrt;
-  target.textContent = text;
-  target.classList.add("is-active");
+// Boot is slow enough (a 110 MB model plus a WASM Python runtime) that a bare
+// spinner reads as a hang, so the page shows how far along it is. `fraction` is
+// null while there is nothing to measure, which the bar renders as a sweep.
+export function setBootProgress({ fraction, message, detail }) {
+  elements.bootMessage.textContent = message;
+  elements.bootDetail.textContent = detail || "";
+
+  const isIndeterminate = fraction === null || fraction === undefined;
+  elements.bootBar.classList.toggle("is-indeterminate", isIndeterminate);
+
+  if (isIndeterminate) {
+    elements.bootBar.removeAttribute("aria-valuenow");
+    return;
+  }
+
+  const percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+  elements.bootBarFill.style.width = percent + "%";
+  elements.bootBar.setAttribute("aria-valuenow", String(percent));
 }
 
-export function setReady(versions, provider) {
+// The analyzer takes ten seconds or so to come up. Until it does there is a
+// progress bar and nothing to interact with; the upload form only appears once
+// both workers can actually serve a file.
+export function setReady() {
+  elements.bootPanel.hidden = true;
+  elements.form.hidden = false;
   elements.button.disabled = false;
-  elements.bootDetail.textContent =
-    "Python " + versions.python + " - librosa " + versions.librosa + ", numpy " + versions.numpy +
-    ", matplotlib " + versions.matplotlib + ", Pillow " + versions.pillow + " - inference on " + provider + ".";
-  setAnalysisStatus("Ready. Everything below runs in this browser - no audio is uploaded anywhere.");
+  setAnalysisStatus("Your recording is analyzed on your device via WebGPU in this browser tab. Nothing is uploaded.");
 }
 
-export function setThresholdSource(thresholds) {
-  const note = document.getElementById("threshold-note");
-  note.textContent = thresholds
-    ? "Thresholds: assets/thresholds.json" + (thresholds.run_id ? " (MLflow run " + thresholds.run_id + ")" : "")
-    : "Thresholds: config.yaml defaults (no assets/thresholds.json deployed).";
+export function setBootError() {
+  elements.bootPanel.classList.add("is-error");
+  elements.bootBar.hidden = true;
+  elements.bootDetail.textContent = "";
+  elements.bootMessage.textContent =
+    "Something went wrong loading the analyzer. Try refreshing the page.";
 }
 
 export function setAnalysisStatus(text, isError = false) {
@@ -137,13 +170,15 @@ export function setProgress(label, done, total) {
   if (!total) {
     return;
   }
-  setAnalysisStatus(label + " " + done + " / " + total + " segments…");
+  setAnalysisStatus(label + " " + done + " of " + total + " sections…");
 }
 
 export function setBusy(busy) {
   elements.button.disabled = busy;
   elements.fileInput.disabled = busy;
-  elements.domainSelect.disabled = busy;
+  for (const radio of elements.domainRadios) {
+    radio.disabled = busy;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,18 +193,20 @@ export function resetResults() {
   elements.graph.replaceChildren();
   elements.tbody.replaceChildren();
   elements.summary.textContent = "";
-  elements.summary.className = "summary";
+  elements.verdict.replaceChildren();
+  elements.verdict.className = "verdict";
 }
 
 export function beginResults({ duration, domain, filename }) {
   elements.results.hidden = false;
   elements.fileHeader.replaceChildren(
-    headerItem("File: " + filename),
-    headerItem("Domain: " + domain),
-    headerItem(duration.toFixed(1) + "s")
+    headerItem(filename),
+    headerItem(formatClock(duration) + " long"),
+    headerItem(domain === "YouTube" ? "From YouTube" : "Recorded by you")
   );
-  elements.summary.textContent = "Scoring segments…";
-  elements.summary.className = "summary is-pending";
+  elements.verdict.className = "verdict is-pending";
+  elements.verdict.replaceChildren(verdictHeadline("Running the diagnosis…"));
+  elements.summary.textContent = "";
 }
 
 function headerItem(text) {
@@ -190,7 +227,7 @@ export function setSpectrogram(pngBytes) {
 export function renderResults(results) {
   currentResults = results;
   relayout();
-  renderSummary(results);
+  renderVerdict(results);
   renderTable(results);
 }
 
@@ -306,7 +343,7 @@ function renderGraph(results, plotWidth) {
   const thresholdY = scoreToY(results.threshold);
   children.push(
     line(PLOT_MARGIN_LEFT, thresholdY, PLOT_MARGIN_LEFT + plotWidth, thresholdY, "threshold-line"),
-    svgText(PLOT_MARGIN_LEFT + plotWidth + 6, thresholdY + 4, "threshold", "axis-label threshold-label")
+    svgText(PLOT_MARGIN_LEFT + plotWidth + 6, thresholdY + 4, "unusual", "axis-label threshold-label")
   );
 
   children.push(line(PLOT_MARGIN_LEFT, plotBottom, PLOT_MARGIN_LEFT + plotWidth, plotBottom, "axis-line"));
@@ -338,8 +375,8 @@ function renderGraph(results, plotWidth) {
     band.setAttribute("height", String(plotHeight));
     const title = document.createElementNS(SVG_NS, "title");
     title.textContent =
-      "t=" + segment.start_time.toFixed(2) + "s  score=" + segment.anomaly_score.toFixed(2) + "  " +
-      (segment.is_anomalous ? "anomaly" : "healthy");
+      formatClock(segment.start_time) + " - " +
+      (segment.is_anomalous ? "sounded unusual" : "sounded normal");
     band.appendChild(title);
     children.push(band);
   });
@@ -451,23 +488,44 @@ function formatPercent(value) {
   return Math.round(value * 100) + "%";
 }
 
-function renderSummary(results) {
+const HEALTHY_EXPLANATION =
+  "No unusual patterns were found in your recording. This doesn't rule out all " +
+  "faults. If you still have concerns, consult a mechanic.";
+
+const ANOMALY_EXPLANATION =
+  "The analyzer found sections that sound different from healthy engine " +
+  "recordings. This is not a confirmed fault, please consult a mechanic for a " +
+  "proper diagnosis.";
+
+function renderVerdict(results) {
   const anomalousCount = results.segments.filter((segment) => segment.is_anomalous).length;
   const isAnomaly = results.overall_verdict === "anomaly";
 
-  elements.summary.className = "summary " + (isAnomaly ? "is-anomaly" : "is-healthy");
-  elements.summary.replaceChildren(
-    summaryItem(isAnomaly ? "Overall: ✗ ANOMALY DETECTED" : "Overall: ✓ HEALTHY", "summary-verdict"),
-    summaryItem("Confidence: " + formatPercent(results.overall_confidence)),
-    summaryItem(anomalousCount + " / " + results.segments.length + " segments anomalous")
+  elements.verdict.className = "verdict " + (isAnomaly ? "is-anomaly" : "is-healthy");
+  elements.verdict.replaceChildren(
+    verdictHeadline(isAnomaly ? "⚠ Unusual sounds detected" : "✓ Your engine sounds healthy"),
+    verdictExplanation(isAnomaly ? ANOMALY_EXPLANATION : HEALTHY_EXPLANATION)
   );
+
+  elements.summary.textContent =
+    (anomalousCount === 0
+      ? "None of the " + results.segments.length + " sections sounded unusual"
+      : anomalousCount + " of " + results.segments.length + " sections sounded unusual") +
+    " · Certainty: " + formatPercent(results.overall_confidence);
 }
 
-function summaryItem(content, className) {
-  const span = document.createElement("span");
-  span.className = className || "summary-item";
-  span.textContent = content;
-  return span;
+function verdictHeadline(text) {
+  const heading = document.createElement("p");
+  heading.className = "verdict-headline";
+  heading.textContent = text;
+  return heading;
+}
+
+function verdictExplanation(text) {
+  const paragraph = document.createElement("p");
+  paragraph.className = "verdict-explanation";
+  paragraph.textContent = text;
+  return paragraph;
 }
 
 function renderTable(results) {
@@ -482,10 +540,8 @@ function buildSegmentRow(segment) {
 
   row.append(
     cell(String(segment.index + 1)),
-    cell(segment.start_time.toFixed(2) + "s"),
-    cell(segment.end_time.toFixed(2) + "s"),
-    cell(segment.raw_mse.toFixed(5)),
-    cell(segment.anomaly_score.toFixed(2)),
+    cell(formatClock(segment.start_time)),
+    cell(formatClock(segment.end_time)),
     verdictCell(segment.is_anomalous),
     cell(formatPercent(segment.confidence))
   );
@@ -511,8 +567,14 @@ function cell(content) {
 function verdictCell(isAnomalous) {
   const td = document.createElement("td");
   td.className = isAnomalous ? "verdict-anomaly" : "verdict-healthy";
-  td.textContent = isAnomalous ? "✗ Anomaly" : "✓ Healthy";
+  td.textContent = isAnomalous ? "⚠ Unusual" : "✓ Normal";
   return td;
+}
+
+// m:ss - a rider reads a position in a recording, not a float.
+function formatClock(seconds) {
+  const whole = Math.round(seconds);
+  return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0");
 }
 
 function scrollToTime(time) {

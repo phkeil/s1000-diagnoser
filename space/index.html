@@ -10,45 +10,67 @@
 
 <header class="app-header">
   <h1>🏍️ S1000-Diagnoser</h1>
-  <span class="subtitle">Cam-chain anomaly detection, entirely in your browser</span>
+  <span class="subtitle">Listen to your engine, right here in your browser via WebGPU</span>
 </header>
 
 <main>
-  <section class="boot-panel">
-    <div class="boot-row"><span class="boot-label">Python</span><span id="boot-pyodide" class="boot-value">waiting…</span></div>
-    <div class="boot-row"><span class="boot-label">Model</span><span id="boot-ort" class="boot-value">waiting…</span></div>
-    <p id="boot-detail" class="boot-detail"></p>
-    <p id="threshold-note" class="boot-detail"></p>
+  <section id="boot-panel" class="boot-panel">
+    <p id="boot-message" class="boot-message" role="status">Getting ready…</p>
+    <div id="boot-bar" class="boot-bar is-indeterminate" role="progressbar"
+         aria-labelledby="boot-message" aria-valuemin="0" aria-valuemax="100">
+      <div id="boot-bar-fill" class="boot-bar-fill"></div>
+    </div>
+    <p id="boot-detail" class="boot-detail">This takes a moment the first time.</p>
   </section>
 
-  <form id="analyze-form" class="upload-panel">
+  <form id="analyze-form" class="upload-panel" hidden>
     <div id="drop-zone" class="drop-zone" tabindex="0">
-      <strong>Drop a recording here</strong>
-      <span class="hint">or click to choose a file — .wav or .m4a, up to 50 MB</span>
+      <strong>Drop your engine recording here</strong>
+      <span class="hint">or click to choose a file</span>
+      <span class="hint hint-tip">
+        Record your engine at idle for 15–30 seconds, then upload the file from your phone.<br>
+        Trim the clip to just the running engine. Cut out starting the bike, talking, or handling noise.
+      </span>
       <span id="file-name" class="file-name">No file chosen</span>
       <input id="file-input" type="file" accept=".wav,.m4a,audio/wav,audio/x-m4a,audio/mp4" hidden>
     </div>
 
-    <div class="controls">
-      <label for="domain-select">Recording source</label>
-      <select id="domain-select">
-        <option value="">Auto-detect from filename</option>
-        <option value="Garage">Garage (own recording)</option>
-        <option value="YouTube">YouTube</option>
-      </select>
-      <button id="analyze-button" type="submit" disabled>Analyze</button>
-    </div>
+    <fieldset class="controls">
+      <legend>Where did this recording come from?</legend>
+      <div class="choices">
+        <label class="choice">
+          <input type="radio" name="domain" value="Garage" checked>
+          <span>I recorded it myself</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="domain" value="YouTube">
+          <span>It's from YouTube</span>
+        </label>
+      </div>
+    </fieldset>
 
-    <p id="analysis-status" class="status">Starting up…</p>
+    <button id="analyze-button" type="submit" disabled>Analyze</button>
+
+    <p id="analysis-status" class="status" role="status"></p>
   </form>
 
   <section id="results" class="results" hidden>
-    <div id="file-header" class="file-header"></div>
+    <div id="verdict" class="verdict"></div>
+    <p id="summary" class="summary"></p>
+
+    <details class="explainer">
+      <summary>What am I looking at?</summary>
+      <p>
+        The image below shows the sound frequencies in your recording over time (mel-spectrum).
+        The colored line shows the anomaly score. Sections above the dashed line
+        sounded unusual to the model.
+      </p>
+    </details>
 
     <div class="panel">
       <div id="spectrogram-scroll" class="scroll">
         <div id="spectrogram-inner" class="spectrogram-inner">
-          <img id="spectrogram-image" class="spectrogram-image" alt="Mel spectrogram of the uploaded recording">
+          <img id="spectrogram-image" class="spectrogram-image" alt="Sound frequencies in your recording over time">
         </div>
       </div>
       <div id="graph-scroll" class="scroll graph-scroll">
@@ -56,28 +78,32 @@
       </div>
     </div>
 
-    <div id="summary" class="summary"></div>
-
-    <table class="segment-table">
-      <thead>
-        <tr>
-          <th>#</th><th>Start</th><th>End</th><th>Raw MSE</th><th>Score</th><th>Verdict</th><th>Confidence</th>
-        </tr>
-      </thead>
-      <tbody id="segment-tbody"></tbody>
-    </table>
+    <details class="segment-details">
+      <summary>Show details</summary>
+      <div id="file-header" class="file-header"></div>
+      <div class="table-scroll">
+        <table class="segment-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Start</th><th>End</th><th>Result</th><th>Certainty</th>
+            </tr>
+          </thead>
+          <tbody id="segment-tbody"></tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   <footer class="app-footer">
     <p>
-      Preprocessing runs the project's own <code>src/data.py</code> under Pyodide, so the mel
-      spectrograms the model sees are produced by the same code that produced its training data.
-      Inference runs the exported CAE through ONNX Runtime Web. Your audio never leaves this tab.
+      S1000-Diagnoser is a research prototype, not a diagnostic tool.
+      Results should not replace professional mechanical inspection.
+      Your audio is analyzed on your device via WebGPU in this browser
+      tab. Nothing is uploaded to a server.
     </p>
     <p>
-      This is a research prototype, not a diagnostic instrument. The model is trained on healthy
-      engine audio only, so a high score means "this does not sound like the healthy recordings it
-      has seen" — not a confirmed fault.
+      Built by Philip Kehl ·
+      <a href="https://github.com/phkeil/s1000-diagnoser" target="_blank" rel="noopener">Source on GitHub</a>
     </p>
   </footer>
 </main>

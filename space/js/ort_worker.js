@@ -14,6 +14,12 @@
 // for the same audio the server would call healthy. The parity script
 // (scripts/check_space_parity.py) exists to catch exactly that.
 //
+// The model is fetched here rather than by InferenceSession.create(url) for
+// two reasons: it is 110 MB and the page wants a real progress bar for it, and
+// the WebGPU-then-WASM fallback below would otherwise ask ORT to fetch it
+// twice. Downloading once into a buffer and building both attempts from that
+// buffer gives byte-level progress AND one request.
+//
 // Segments are scored one at a time rather than as one N-batch: a long
 // recording is hundreds of segments, and a single (N, 3, 224, 224) tensor is
 // both a large allocation and a long GPU stall. The exported graph has a
@@ -25,6 +31,10 @@ const MODEL_PATH = "assets/s1000_cae.onnx";
 const INPUT_NAME = "input";
 const OUTPUT_NAME = "reconstruction";
 const SEGMENT_FLOATS = 3 * 224 * 224;
+
+// A 110 MB body arrives in ~64 KB chunks: posting per chunk is ~1700 messages
+// for a bar that can only move 100 pixels. One every 100 ms is plenty.
+const DOWNLOAD_REPORT_INTERVAL_MS = 100;
 
 // src/inference.py's _CONFIDENCE_FLOOR: a typical healthy segment should read
 // as low-but-not-zero confidence rather than flatlining at 0.
@@ -73,12 +83,20 @@ async function handleMessage(message) {
 
 async function init(baseUrl) {
   const modelUrl = new URL(MODEL_PATH, baseUrl).href;
+  const modelBytes = await fetchModel(modelUrl);
+
+  // Building the session is the other multi-second step: ORT has to parse the
+  // graph and either compile it to WASM or upload the weights to the GPU.
+  self.postMessage({ type: "downloaded" });
 
   // navigator.gpu exists in a worker on Chrome/Edge; the catch also covers a
   // browser that advertises WebGPU but cannot build a session on it.
+  //
+  // ORT copies the buffer into its own heap, so the same modelBytes can back
+  // the fallback attempt.
   if (self.navigator && self.navigator.gpu) {
     try {
-      session = await ort.InferenceSession.create(modelUrl, { executionProviders: ["webgpu"] });
+      session = await ort.InferenceSession.create(modelBytes, { executionProviders: ["webgpu"] });
       provider = "WebGPU";
     } catch (error) {
       console.warn("WebGPU session creation failed, falling back to WASM:", error);
@@ -86,11 +104,64 @@ async function init(baseUrl) {
   }
 
   if (!session) {
-    session = await ort.InferenceSession.create(modelUrl, { executionProviders: ["wasm"] });
+    session = await ort.InferenceSession.create(modelBytes, { executionProviders: ["wasm"] });
     provider = self.navigator && self.navigator.gpu ? "WASM (WebGPU unavailable)" : "WASM (no WebGPU in this browser)";
   }
 
   self.postMessage({ type: "ready", provider });
+}
+
+// Streams the model so the page can show how much of it has arrived.
+// content-length is missing when the server encodes the body (and on some
+// proxies), and a total of 0 is the worker's way of saying "no percentage
+// available" - the page falls back to an indeterminate bar.
+async function fetchModel(modelUrl) {
+  const response = await fetch(modelUrl);
+  if (!response.ok) {
+    throw new Error("Could not download the model from " + modelUrl + " (" + response.status + ").");
+  }
+
+  const total = Number(response.headers.get("content-length")) || 0;
+  self.postMessage({ type: "download", loaded: 0, total });
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    self.postMessage({ type: "download", loaded: bytes.byteLength, total: bytes.byteLength });
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  let lastReportAt = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(value);
+    loaded += value.byteLength;
+
+    const now = Date.now();
+    if (now - lastReportAt >= DOWNLOAD_REPORT_INTERVAL_MS) {
+      lastReportAt = now;
+      self.postMessage({ type: "download", loaded, total });
+    }
+  }
+
+  self.postMessage({ type: "download", loaded, total: total || loaded });
+  return concatChunks(chunks, loaded);
+}
+
+function concatChunks(chunks, byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 async function score(message) {

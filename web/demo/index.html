@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>s1000-diagnoser — WebGPU inference proof of concept</title>
+<style>
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; max-width: 46rem; line-height: 1.5; }
+  h1 { font-size: 1.1rem; }
+  #status { padding: 0.5rem 0; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  td { padding: 0.15rem 1rem 0.15rem 0; vertical-align: top; }
+  td:first-child { color: #666; }
+  button { font: inherit; padding: 0.4rem 0.9rem; }
+  .err { color: #b00; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>s1000-diagnoser — ONNX Runtime Web proof of concept</h1>
+<p>
+  Loads the exported CAE (<code>src/export_onnx.py</code>), runs one forward pass on a
+  random tensor. No preprocessing — this only proves the model executes in the browser.
+</p>
+
+<div id="status">Loading…</div>
+<table id="results"></table>
+<button id="rerun" disabled>Run again</button>
+<div id="timings"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<script>
+// CDN is fine for this local proof of concept; the production Hugging Face build
+// will vendor onnxruntime-web instead (cf. web/vendor/ for wavesurfer).
+const MODEL_URL = "../../models/s1000_cae.onnx";
+const INPUT_NAME = "input";
+const OUTPUT_NAME = "reconstruction";
+const SHAPE = [1, 3, 224, 224];
+
+// Without this, ORT looks for its .wasm/.mjs runtime files next to this page.
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results");
+const timingsEl = document.getElementById("timings");
+const rerunEl = document.getElementById("rerun");
+
+let session = null;
+let provider = null;
+const timings = [];
+
+function row(label, value) {
+  const tr = document.createElement("tr");
+  const td1 = document.createElement("td");
+  const td2 = document.createElement("td");
+  td1.textContent = label;
+  td2.textContent = value;
+  tr.append(td1, td2);
+  resultsEl.append(tr);
+}
+
+function fail(message, error) {
+  statusEl.innerHTML = '<span class="err">' + message + "\n" + (error && error.message ? error.message : error) + "</span>";
+  console.error(error);
+}
+
+// WebGPU first, WASM fallback. The fallback is the interesting half: it covers
+// both "no navigator.gpu at all" (Safari/Firefox without the flag) and a browser
+// that advertises WebGPU but fails to build a session on it.
+async function createSession() {
+  if (navigator.gpu) {
+    try {
+      const s = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ["webgpu"] });
+      return [s, "WebGPU"];
+    } catch (err) {
+      console.warn("WebGPU session creation failed, falling back to WASM:", err);
+    }
+  }
+  const s = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ["wasm"] });
+  return [s, navigator.gpu ? "WASM (WebGPU failed)" : "WASM (no WebGPU in this browser)"];
+}
+
+function randomInput() {
+  const size = SHAPE.reduce((a, b) => a * b, 1);
+  const data = new Float32Array(size);
+  for (let i = 0; i < size; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return new ort.Tensor("float32", data, SHAPE);
+}
+
+async function runOnce() {
+  const feeds = {};
+  feeds[INPUT_NAME] = randomInput();
+
+  const started = performance.now();
+  const outputMap = await session.run(feeds);
+  const elapsed = performance.now() - started;
+
+  const output = outputMap[OUTPUT_NAME] ?? Object.values(outputMap)[0];
+  const data = output.data;
+
+  let min = Infinity, max = -Infinity, sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] < min) min = data[i];
+    if (data[i] > max) max = data[i];
+    sum += data[i];
+  }
+
+  return { elapsed, dims: output.dims, min, max, mean: sum / data.length };
+}
+
+function render(result) {
+  resultsEl.replaceChildren();
+  row("Execution provider", provider);
+  row("Input shape", "[" + SHAPE.join(", ") + "] float32 (random)");
+  row("Output shape", "[" + result.dims.join(", ") + "]");
+  row("Output min", result.min.toFixed(6));
+  row("Output max", result.max.toFixed(6));
+  row("Output mean", result.mean.toFixed(6));
+  row("Inference time", result.elapsed.toFixed(1) + " ms");
+
+  timings.push(result.elapsed);
+  timingsEl.textContent = timings.length > 1
+    ? "Runs (ms): " + timings.map((t) => t.toFixed(1)).join(", ") +
+      "  — first run includes shader/kernel warm-up."
+    : "";
+}
+
+(async () => {
+  try {
+    statusEl.textContent = "Loading " + MODEL_URL + " (~110 MB) …";
+    const loadStarted = performance.now();
+    [session, provider] = await createSession();
+    statusEl.textContent = "Session ready on " + provider +
+      " in " + ((performance.now() - loadStarted) / 1000).toFixed(1) + " s. Running…";
+
+    render(await runOnce());
+    statusEl.textContent = "OK — model ran in the browser on " + provider + ".";
+    rerunEl.disabled = false;
+  } catch (err) {
+    fail("Failed. Serve the repo root over HTTP (python -m http.server 8080) — " +
+         "opening this file directly via file:// cannot fetch the model.", err);
+  }
+})();
+
+rerunEl.addEventListener("click", async () => {
+  rerunEl.disabled = true;
+  try {
+    render(await runOnce());
+  } catch (err) {
+    fail("Re-run failed.", err);
+  }
+  rerunEl.disabled = false;
+});
+</script>
+
+</body>
+</html>

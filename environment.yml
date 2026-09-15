@@ -19,3 +19,10 @@ dependencies:
     - scikit-learn==1.8.0
     - mlflow==3.16.0
     - pytest==9.1.1
+    # ONNX export toolchain (src/export_onnx.py) - dev-only, deliberately NOT in
+    # requirements-api.txt: the Docker inference image serves the PyTorch model
+    # directly and never exports. onnxscript is required by torch 2.11's default
+    # (dynamo) torch.onnx.export path; onnxruntime is used to verify the export.
+    - onnx==1.22.0
+    - onnxscript==0.7.2
+    - onnxruntime==1.30.0

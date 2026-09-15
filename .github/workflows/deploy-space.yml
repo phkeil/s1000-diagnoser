@@ -1,0 +1,30 @@
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'space/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push space/ to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          cd space
+          git init
+          git config user.email "deploy@github-actions"
+          git config user.name "GitHub Actions"
+          git lfs install
+          git remote add huggingface https://phkeil:$HF_TOKEN@huggingface.co/spaces/phkeil/s1000-diagnoser
+          git add .
+          git commit -m "deploy from GitHub ${{ github.sha }}"
+          git push huggingface master:main --force

@@ -1,6 +1,7 @@
 # Large audio assets should not be tracked
 /data/
 
+/models/
 *.pth
 # ONNX exports (src/export_onnx.py) - regenerated from the .pth above, ~110 MB
 *.onnx

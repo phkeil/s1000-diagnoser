@@ -1,0 +1,532 @@
+/* Dark palette and the graph/table classes are carried over from the local
+   tool app (web/style.css) so the Space reads as the same project.
+
+   Anomalies are drawn in amber, not red: the model only ever says "this does
+   not sound like the healthy recordings", which is a reason to look, not a
+   confirmed fault. Red is kept for actual errors. */
+
+:root {
+  color-scheme: light;
+  --bg: #12141a;
+  --panel: #1b1e27;
+  --border: #2c3040;
+  --text: #e6e8ef;
+  --muted: #9aa1b2;
+  --accent: #5b8def;
+  --healthy: #3ddc84;
+  --caution: #f5a524;
+  --defective: #f2545b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* The boot panel and the form are toggled with the hidden attribute, and both
+   carry a display of their own that would otherwise win over it. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* --- loading state -------------------------------------------------------- */
+
+.boot-panel {
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: 3rem 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.boot-message {
+  margin: 0 0 0.7rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.boot-detail {
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
+  min-height: 1.2em;
+}
+
+.boot-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.boot-bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+/* Until the first content-length lands there is no percentage to show, so the
+   bar sweeps instead of filling. */
+.boot-bar.is-indeterminate .boot-bar-fill {
+  width: 35%;
+  transition: none;
+  animation: sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(286%);
+  }
+}
+
+.boot-panel.is-error .boot-message {
+  color: var(--defective);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-bar.is-indeterminate .boot-bar-fill {
+    animation-duration: 4s;
+  }
+
+  .boot-bar-fill {
+    transition: none;
+  }
+}
+
+/* --- upload --------------------------------------------------------------- */
+
+.upload-panel {
+  margin-top: 1rem;
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop-zone.is-dragover,
+.drop-zone:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.drop-zone strong {
+  font-size: 1.05rem;
+}
+
+.drop-zone .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.hint-tip {
+  margin-top: 0.6rem;
+}
+
+/* Only a real file name is worth the accent colour - the placeholder in accent
+   reads as a link the user is meant to click. */
+.file-name {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.file-name.has-file {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* A fieldset is left as a block box - a legend does not participate in a flex
+   container's flow - and the radios get their own flex row. */
+.controls {
+  margin: 1.1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.controls legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.choices {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.choice input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  margin-top: 1.1rem;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.55rem 1.4rem;
+  color: #0b1020;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+
+.status {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  min-height: 1.3em;
+}
+
+.status.is-error {
+  color: var(--defective);
+}
+
+/* --- results -------------------------------------------------------------- */
+
+.results {
+  margin-top: 2rem;
+}
+
+/* The verdict is the whole point of the page, so it gets the largest type on
+   it and everything technical sits below or behind a toggle. */
+.verdict {
+  padding: 1.2rem 1.4rem;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.verdict-headline {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.verdict-explanation {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 46rem;
+}
+
+.verdict.is-pending {
+  border-left-color: var(--accent);
+}
+
+.verdict.is-pending .verdict-headline {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.verdict.is-healthy {
+  border-left-color: var(--healthy);
+}
+
+.verdict.is-healthy .verdict-headline {
+  color: var(--healthy);
+}
+
+.verdict.is-anomaly {
+  border-left-color: var(--caution);
+}
+
+.verdict.is-anomaly .verdict-headline {
+  color: var(--caution);
+}
+
+.summary {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.summary:empty {
+  display: none;
+}
+
+/* --- collapsible explainer + details -------------------------------------- */
+
+details {
+  margin-top: 1.25rem;
+}
+
+details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.85rem;
+  list-style: none;
+  user-select: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::after {
+  content: "▾";
+  font-size: 0.75em;
+  transition: transform 0.15s ease;
+}
+
+details[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.explainer p {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  max-width: 46rem;
+}
+
+.explainer {
+  margin-bottom: 0.75rem;
+}
+
+.file-header {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 0.8rem 0 0.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* One box holding the two scroll viewports. Both viewports are exactly this
+   box's inner width, which is what lets a shared scrollLeft mean the same
+   moment in time in both - see js/ui.js. */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.spectrogram-inner {
+  height: 200px;
+}
+
+.spectrogram-image {
+  display: block;
+  width: 100%;
+  height: 200px;
+}
+
+.graph-scroll {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.graph {
+  display: block;
+  height: 180px;
+}
+
+.gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.axis-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.axis-label-y {
+  text-anchor: end;
+}
+
+.axis-label-x {
+  text-anchor: middle;
+}
+
+.score-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.area {
+  stroke: none;
+}
+
+.area-healthy {
+  fill: rgba(91, 141, 239, 0.22);
+}
+
+.area-anomaly {
+  fill: rgba(245, 165, 36, 0.3);
+}
+
+.threshold-line {
+  stroke: var(--caution);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.threshold-label {
+  fill: var(--caution);
+  text-anchor: start;
+}
+
+.dot {
+  fill: var(--accent);
+}
+
+.dot.is-anomaly {
+  fill: var(--caution);
+}
+
+/* Invisible full-height column per segment: carries the tooltip and gives the
+   pointer a real target instead of a 2px dot. */
+.hover-band {
+  fill: transparent;
+}
+
+.hover-band:hover {
+  fill: rgba(230, 232, 239, 0.07);
+}
+
+.segment-table {
+  width: 100%;
+  margin-top: 0.6rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.segment-table th,
+.segment-table td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.segment-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.segment-table tbody tr {
+  cursor: pointer;
+}
+
+.segment-table tbody tr.is-anomaly {
+  background: rgba(245, 165, 36, 0.14);
+}
+
+.segment-table tbody tr.is-anomaly:hover {
+  background: rgba(245, 165, 36, 0.22);
+}
+
+.verdict-healthy {
+  color: var(--healthy);
+}
+
+.verdict-anomaly {
+  color: var(--caution);
+}
+
+.app-footer {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.app-footer p {
+  max-width: 46rem;
+}
+
+.app-footer a {
+  color: var(--accent);
+}

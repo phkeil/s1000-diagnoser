@@ -17,6 +17,17 @@ This is unsupervised anomaly detection rather than classification — useful bec
 
 The project started as a set of exploratory Jupyter notebooks and has since been consolidated into a shared `src/` package, a training script with MLflow experiment tracking, a FastAPI service, tests, a Dockerfile, and CI. `UPGRADE_PLAN.md` documents that migration in detail.
 
+## Live Demo
+
+Try the analyzer in your browser — no installation required:
+
+👉 **[S1000-Diagnoser on Hugging Face Spaces](https://huggingface.co/spaces/phkeil/s1000-diagnoser)**
+
+Inference runs entirely client-side via WebGPU. Your audio never
+leaves your browser.
+
+---
+
 ## Architecture
 
 ```text

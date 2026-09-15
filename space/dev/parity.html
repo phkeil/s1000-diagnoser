@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space parity check</title>
+<style>
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; max-width: 60rem;
+         background: #12141a; color: #e6e8ef; line-height: 1.55; }
+  h1 { font-size: 1.05rem; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+  td, th { padding: 0.2rem 1.2rem 0.2rem 0; text-align: left; vertical-align: top; }
+  th { color: #9aa1b2; font-weight: 500; }
+  .pass { color: #3ddc84; }
+  .fail { color: #f2545b; }
+  .muted { color: #9aa1b2; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>Browser vs. Python parity check</h1>
+<p class="muted">
+  Runs <code>js/pyodide_worker.js</code> and <code>js/ort_worker.js</code> against the fixtures
+  written by <code>scripts/check_space_parity.py</code>, and reports how far the browser's
+  numbers are from the ones the real Python pipeline produced for the same samples.
+</p>
+
+<pre id="log">waiting…</pre>
+<table id="results"></table>
+
+<script type="module">
+// Dev-only harness. Not part of the app: index.html never loads this, and it is
+// the reason both workers take their baseUrl from the main thread rather than
+// assuming they were started from the Space root.
+const baseUrl = new URL("../", window.location.href).href;
+
+const logEl = document.getElementById("log");
+const resultsEl = document.getElementById("results");
+window.PARITY_DONE = false;
+
+function log(text) {
+  logEl.textContent += "\n" + text;
+}
+
+function row(label, value, verdict) {
+  const tr = document.createElement("tr");
+  const th = document.createElement("th");
+  th.textContent = label;
+  const td = document.createElement("td");
+  td.textContent = value;
+  if (verdict) {
+    td.className = verdict;
+  }
+  tr.append(th, td);
+  resultsEl.append(tr);
+}
+
+function maxAbsDiff(a, b) {
+  let max = 0;
+  const n = Math.min(a.length, b.length);
+  // An empty comparison is a broken run, not a perfect match.
+  if (n === 0) return NaN;
+  for (let i = 0; i < n; i += 1) {
+    const diff = Math.abs(a[i] - b[i]);
+    if (diff > max) max = diff;
+  }
+  return max;
+}
+
+function meanAbsDiff(a, b) {
+  let sum = 0;
+  const n = Math.min(a.length, b.length);
+  if (n === 0) return NaN;
+  for (let i = 0; i < n; i += 1) sum += Math.abs(a[i] - b[i]);
+  return sum / n;
+}
+
+function workerReady(worker, initMessage) {
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (event) => {
+      const message = event.data;
+      if (message.type === "ready") resolve(message);
+      else if (message.type === "error") reject(new Error(message.message));
+      else if (message.type === "status") log("  " + message.detail);
+    };
+    worker.onerror = (event) => reject(new Error(event.message || "worker failed to load"));
+    worker.postMessage(initMessage);
+  });
+}
+
+(async () => {
+try {
+  log("fetching fixtures…");
+  const [reference, wavBytes, refTensorBytes] = await Promise.all([
+    fetch("parity_reference.json").then((r) => {
+      if (!r.ok) throw new Error("parity_reference.json missing - run scripts/check_space_parity.py first");
+      return r.json();
+    }),
+    fetch("parity_audio.wav").then((r) => r.arrayBuffer()),
+    fetch("parity_tensors.f32").then((r) => r.arrayBuffer()),
+  ]);
+  const refTensors = new Float32Array(refTensorBytes);
+  log(`reference: ${reference.source_file}, ${reference.num_segments} segments, domain=${reference.domain}`);
+
+  // --- decode the float32 WAV exactly as the app does -----------------------
+  const context = new OfflineAudioContext(1, 1, reference.sample_rate);
+  const buffer = await context.decodeAudioData(wavBytes);
+  const audio = buffer.getChannelData(0);
+  log(`decoded ${audio.length} samples @ ${buffer.sampleRate} Hz`);
+
+  // --- boot workers ---------------------------------------------------------
+  log("booting pyodide worker…");
+  const pyWorker = new Worker(new URL("../js/pyodide_worker.js", import.meta.url));
+  const pyReady = await workerReady(pyWorker, { type: "init", baseUrl });
+  log("pyodide ready: " + JSON.stringify(pyReady.versions));
+
+  log("booting ort worker…");
+  const ortWorker = new Worker(new URL("../js/ort_worker.js", import.meta.url));
+  const ortReady = await workerReady(ortWorker, { type: "init", baseUrl });
+  log("ort ready: " + ortReady.provider);
+
+  // --- preprocess -----------------------------------------------------------
+  const browserTensors = [];
+  let prepared = null;
+  const scored = new Promise((resolve, reject) => {
+    ortWorker.onmessage = (event) => {
+      if (event.data.type === "results") resolve(event.data);
+      else if (event.data.type === "error") reject(new Error(event.data.message));
+    };
+    pyWorker.onmessage = (event) => {
+      const message = event.data;
+      if (message.type === "prepared") {
+        prepared = message;
+      } else if (message.type === "tensors") {
+        // Keep a copy of the leading segments for the element-wise check
+        // before the buffer is transferred away to the ORT worker.
+        if (message.offset < reference.tensor_segments) {
+          browserTensors.push({ offset: message.offset, data: message.data.slice() });
+        }
+        ortWorker.postMessage({ type: "score", data: message.data, offset: message.offset }, [message.data.buffer]);
+        if (message.isLast) {
+          ortWorker.postMessage({
+            type: "finalize",
+            starts: prepared.starts,
+            duration: prepared.duration,
+            segmentDuration: reference.segment_duration,
+            params: {
+              domain: reference.domain,
+              baseline: reference.baseline,
+              threshold: reference.threshold,
+              windowSize: reference.window_size,
+              healthyMedianScore: reference.healthy_median_score,
+            },
+          });
+        }
+      } else if (message.type === "progress") {
+        log(`  rendered ${message.done}/${message.total}`);
+      } else if (message.type === "error") {
+        reject(new Error(message.message));
+      }
+    };
+  });
+
+  log("preprocessing + scoring…");
+  pyWorker.postMessage(
+    {
+      type: "preprocess",
+      audio,
+      sampleRate: reference.sample_rate,
+      segmentDuration: reference.segment_duration,
+      imageSize: reference.tensor_shape.slice(1),
+    },
+    [audio.buffer]
+  );
+  const results = await scored;
+
+  // --- compare --------------------------------------------------------------
+  const segmentFloats = reference.tensor_shape.reduce((a, b) => a * b, 1);
+  const flatBrowser = new Float32Array(reference.tensor_segments * segmentFloats);
+  for (const batch of browserTensors) {
+    const take = Math.min(batch.data.length, flatBrowser.length - batch.offset * segmentFloats);
+    if (take > 0) flatBrowser.set(batch.data.subarray(0, take), batch.offset * segmentFloats);
+  }
+
+  row("segments (browser / python)", `${results.segments.length} / ${reference.num_segments}`,
+      results.segments.length === reference.num_segments ? "pass" : "fail");
+
+  const tensorMax = maxAbsDiff(flatBrowser, refTensors);
+  const tensorMean = meanAbsDiff(flatBrowser, refTensors);
+  row(`tensor max |diff| (${reference.tensor_segments} segs)`, tensorMax.toExponential(3));
+  row("tensor mean |diff|", tensorMean.toExponential(3));
+
+  const browserRaw = results.segments.map((s) => s.raw_mse);
+  const browserSmoothed = results.segments.map((s) => s.anomaly_score);
+  const browserConf = results.segments.map((s) => s.confidence);
+
+  const rawMax = maxAbsDiff(browserRaw, reference.raw_scores);
+  const refRawMean = reference.raw_scores.reduce((a, b) => a + b, 0) / reference.raw_scores.length;
+  row("raw MSE max |diff|", rawMax.toExponential(3) + `  (python mean ${refRawMean.toFixed(6)}, ${(100 * rawMax / refRawMean).toFixed(2)}% of it)`);
+  row("smoothed score max |diff|", maxAbsDiff(browserSmoothed, reference.smoothed_scores).toExponential(3));
+  row("confidence max |diff|", maxAbsDiff(browserConf, reference.confidences).toExponential(3));
+
+  const verdictMismatches = results.segments.filter((s, i) => s.is_anomalous !== reference.is_anomalous[i]).length;
+  row("per-segment verdict mismatches", `${verdictMismatches} / ${reference.num_segments}`,
+      verdictMismatches === 0 ? "pass" : "fail");
+  row("overall verdict (browser / python)", `${results.overall_verdict} / ${reference.overall_verdict}`,
+      results.overall_verdict === reference.overall_verdict ? "pass" : "fail");
+  row("overall confidence (browser / python)",
+      `${results.overall_confidence.toFixed(4)} / ${reference.overall_confidence.toFixed(4)}`);
+  row("execution provider", results.provider);
+
+  log("done.");
+  window.PARITY_SUMMARY = {
+    segments: results.segments.length,
+    refSegments: reference.num_segments,
+    tensorMax, tensorMean, rawMax,
+    smoothedMax: maxAbsDiff(browserSmoothed, reference.smoothed_scores),
+    confMax: maxAbsDiff(browserConf, reference.confidences),
+    verdictMismatches,
+    browserVerdict: results.overall_verdict,
+    pythonVerdict: reference.overall_verdict,
+    provider: results.provider,
+  };
+  window.PARITY_DONE = true;
+} catch (error) {
+  log("ERROR: " + ((error && error.message) || error));
+  window.PARITY_ERROR = String((error && error.message) || error);
+  window.PARITY_DONE = true;
+}
+})();
+</script>
+</body>
+</html>

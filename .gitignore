@@ -1,10 +1,20 @@
 # Large audio assets should not be tracked
 /data/
 
+/models/
 *.pth
 # ONNX exports (src/export_onnx.py) - regenerated from the .pth above, ~110 MB
 *.onnx
 *.onnx.data
+
+# Hugging Face Space build artifacts (scripts/deploy_space.sh stages these).
+# space/python/ holds COPIES of src/*.py and config.yaml - the originals are
+# the tracked ones; a tracked copy would silently drift from them.
+space/assets/thresholds.json
+space/python/
+space/dev/parity_audio.wav
+space/dev/parity_tensors.f32
+space/dev/parity_reference.json
 
 # Python cache
 __pycache__/

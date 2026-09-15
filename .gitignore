@@ -2,6 +2,9 @@
 /data/
 
 *.pth
+# ONNX exports (src/export_onnx.py) - regenerated from the .pth above, ~110 MB
+*.onnx
+*.onnx.data
 
 # Python cache
 __pycache__/

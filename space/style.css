@@ -1,0 +1,382 @@
+/* Dark palette and the graph/table classes are carried over from the local
+   tool app (web/style.css) so the Space reads as the same project. */
+
+:root {
+  color-scheme: dark;
+  --bg: #12141a;
+  --panel: #1b1e27;
+  --border: #2c3040;
+  --text: #e6e8ef;
+  --muted: #9aa1b2;
+  --accent: #5b8def;
+  --healthy: #3ddc84;
+  --defective: #f2545b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* --- boot status ---------------------------------------------------------- */
+
+.boot-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  font-size: 0.85rem;
+}
+
+.boot-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.boot-label {
+  color: var(--muted);
+  min-width: 4rem;
+}
+
+.boot-value.is-active {
+  color: var(--text);
+}
+
+.boot-detail {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* --- upload --------------------------------------------------------------- */
+
+.upload-panel {
+  margin-top: 1rem;
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop-zone.is-dragover,
+.drop-zone:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.drop-zone .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.file-name {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.controls label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+select,
+button {
+  font: inherit;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.8rem;
+}
+
+button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+
+.status {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status.is-error {
+  color: var(--defective);
+}
+
+/* --- results -------------------------------------------------------------- */
+
+.results {
+  margin-top: 1.5rem;
+}
+
+.file-header {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.6rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* One box holding the two scroll viewports. Both viewports are exactly this
+   box's inner width, which is what lets a shared scrollLeft mean the same
+   moment in time in both - see js/ui.js. */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.spectrogram-inner {
+  height: 200px;
+}
+
+.spectrogram-image {
+  display: block;
+  width: 100%;
+  height: 200px;
+}
+
+.graph-scroll {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.graph {
+  display: block;
+  height: 180px;
+}
+
+.gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.axis-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.axis-label-y {
+  text-anchor: end;
+}
+
+.axis-label-x {
+  text-anchor: middle;
+}
+
+.score-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.area {
+  stroke: none;
+}
+
+.area-healthy {
+  fill: rgba(91, 141, 239, 0.22);
+}
+
+.area-anomaly {
+  fill: rgba(242, 84, 91, 0.28);
+}
+
+.threshold-line {
+  stroke: var(--defective);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.threshold-label {
+  fill: var(--defective);
+  text-anchor: start;
+}
+
+.dot {
+  fill: var(--accent);
+}
+
+.dot.is-anomaly {
+  fill: var(--defective);
+}
+
+/* Invisible full-height column per segment: carries the tooltip and gives the
+   pointer a real target instead of a 2px dot. */
+.hover-band {
+  fill: transparent;
+}
+
+.hover-band:hover {
+  fill: rgba(230, 232, 239, 0.07);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+.summary:empty {
+  display: none;
+}
+
+.summary.is-pending {
+  color: var(--muted);
+}
+
+.summary.is-healthy {
+  border-left-color: var(--healthy);
+}
+
+.summary.is-anomaly {
+  border-left-color: var(--defective);
+}
+
+.summary-verdict {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.summary.is-healthy .summary-verdict {
+  color: var(--healthy);
+}
+
+.summary.is-anomaly .summary-verdict {
+  color: var(--defective);
+}
+
+.segment-table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.segment-table th,
+.segment-table td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.segment-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.segment-table tbody tr {
+  cursor: pointer;
+}
+
+.segment-table tbody tr.is-anomaly {
+  background: rgba(242, 84, 91, 0.12);
+}
+
+.segment-table tbody tr.is-anomaly:hover {
+  background: rgba(242, 84, 91, 0.2);
+}
+
+.verdict-healthy {
+  color: var(--healthy);
+}
+
+.verdict-anomaly {
+  color: var(--defective);
+}
+
+.app-footer {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.app-footer code {
+  color: var(--text);
+}

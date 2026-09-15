@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S1000-Diagnoser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>🏍️ S1000-Diagnoser</h1>
+  <span class="subtitle">Cam-chain anomaly detection, entirely in your browser</span>
+</header>
+
+<main>
+  <section class="boot-panel">
+    <div class="boot-row"><span class="boot-label">Python</span><span id="boot-pyodide" class="boot-value">waiting…</span></div>
+    <div class="boot-row"><span class="boot-label">Model</span><span id="boot-ort" class="boot-value">waiting…</span></div>
+    <p id="boot-detail" class="boot-detail"></p>
+    <p id="threshold-note" class="boot-detail"></p>
+  </section>
+
+  <form id="analyze-form" class="upload-panel">
+    <div id="drop-zone" class="drop-zone" tabindex="0">
+      <strong>Drop a recording here</strong>
+      <span class="hint">or click to choose a file — .wav or .m4a, up to 50 MB</span>
+      <span id="file-name" class="file-name">No file chosen</span>
+      <input id="file-input" type="file" accept=".wav,.m4a,audio/wav,audio/x-m4a,audio/mp4" hidden>
+    </div>
+
+    <div class="controls">
+      <label for="domain-select">Recording source</label>
+      <select id="domain-select">
+        <option value="">Auto-detect from filename</option>
+        <option value="Garage">Garage (own recording)</option>
+        <option value="YouTube">YouTube</option>
+      </select>
+      <button id="analyze-button" type="submit" disabled>Analyze</button>
+    </div>
+
+    <p id="analysis-status" class="status">Starting up…</p>
+  </form>
+
+  <section id="results" class="results" hidden>
+    <div id="file-header" class="file-header"></div>
+
+    <div class="panel">
+      <div id="spectrogram-scroll" class="scroll">
+        <div id="spectrogram-inner" class="spectrogram-inner">
+          <img id="spectrogram-image" class="spectrogram-image" alt="Mel spectrogram of the uploaded recording">
+        </div>
+      </div>
+      <div id="graph-scroll" class="scroll graph-scroll">
+        <svg id="graph" class="graph" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+
+    <div id="summary" class="summary"></div>
+
+    <table class="segment-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Start</th><th>End</th><th>Raw MSE</th><th>Score</th><th>Verdict</th><th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody id="segment-tbody"></tbody>
+    </table>
+  </section>
+
+  <footer class="app-footer">
+    <p>
+      Preprocessing runs the project's own <code>src/data.py</code> under Pyodide, so the mel
+      spectrograms the model sees are produced by the same code that produced its training data.
+      Inference runs the exported CAE through ONNX Runtime Web. Your audio never leaves this tab.
+    </p>
+    <p>
+      This is a research prototype, not a diagnostic instrument. The model is trained on healthy
+      engine audio only, so a high score means "this does not sound like the healthy recordings it
+      has seen" — not a confirmed fault.
+    </p>
+  </footer>
+</main>
+
+<script type="module" src="js/app.js"></script>
+
+</body>
+</html>

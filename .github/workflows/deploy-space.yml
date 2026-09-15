@@ -2,29 +2,31 @@ name: Deploy to Hugging Face Space
 
 on:
   push:
-    branches: [main, feature/*]
+    branches: [main]
     paths:
       - 'space/**'
+      - '!space/assets/**'    # asset changes are always manual
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          lfs: true
 
-      - name: Push space/ to Hugging Face
+      - name: Push space/ to Hugging Face (UI files only)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          cd space
-          git init
+          # clone the existing HF Space so LFS files are already there
+          git clone https://phkeil:$HF_TOKEN@huggingface.co/spaces/phkeil/s1000-diagnoser hf_space
+          cd hf_space
+
+          # overlay UI files from this repo — never touch assets/
+          rsync -av --exclude='assets/' ../space/ .
+
           git config user.email "deploy@github-actions"
           git config user.name "GitHub Actions"
-          git lfs install
-          git remote add huggingface https://phkeil:$HF_TOKEN@huggingface.co/spaces/phkeil/s1000-diagnoser
           git add .
-          git commit -m "deploy from GitHub ${{ github.sha }}"
-          git push huggingface master:main --force
+          git diff --cached --quiet && echo "Nothing to deploy" && exit 0
+          git commit -m "deploy UI from ${{ github.sha }}"
+          git push

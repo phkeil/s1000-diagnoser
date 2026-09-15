@@ -19,12 +19,12 @@ The project started as a set of exploratory Jupyter notebooks and has since been
 
 ## Live Demo
 
-Try the analyzer in your browser — no installation required:
+Try the analyzer in your browser. No installation required:
 
 👉 **[S1000-Diagnoser on Hugging Face Spaces](https://huggingface.co/spaces/phkeil/s1000-diagnoser)**
 
 Inference runs entirely client-side via WebGPU. Your audio never
-leaves your browser.
+leaves your browser. Make sure to use a browser that supports WebGPU (e.g. Google Chrome).
 
 ---
 

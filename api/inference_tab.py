@@ -147,10 +147,12 @@ def load_model_state() -> ModelState:
     logger.info("Diagnose tab loaded model from local checkpoint: %s", checkpoint_path)
 
     thresholds = load_thresholds_from_local_file(str(Path(checkpoint_path).parent / "thresholds.json"))
+    run_id = None
     if thresholds is not None:
         cfg = apply_thresholds(cfg, thresholds)
+        run_id = thresholds.run_id
 
-    return ModelState(cfg=cfg, device=device, model=model, model_version=str(checkpoint_path), model_run_id=None)
+    return ModelState(cfg=cfg, device=device, model=model, model_version=str(checkpoint_path), model_run_id=run_id)
 
 
 def get_model_state() -> ModelState:

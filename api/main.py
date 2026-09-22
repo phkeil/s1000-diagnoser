@@ -99,10 +99,12 @@ def resolve_model(cfg: Config, device: torch.device) -> ModelState:
 
     thresholds_path = Path(checkpoint_path).parent / "thresholds.json"
     thresholds = load_thresholds_from_local_file(str(thresholds_path))
+    run_id = None
     if thresholds is not None:
         cfg = apply_thresholds(cfg, thresholds)
+        run_id = thresholds.run_id
 
-    return ModelState(cfg=cfg, device=device, model=model, model_version=str(checkpoint_path), model_run_id=None)
+    return ModelState(cfg=cfg, device=device, model=model, model_version=str(checkpoint_path), model_run_id=run_id)
 
 
 @asynccontextmanager
